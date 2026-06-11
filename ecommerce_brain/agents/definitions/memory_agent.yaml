@@ -1,0 +1,9 @@
+name: memory_agent
+model: none
+temperature: 0.0
+token_budget: 0
+description: >
+  Deterministic KEDB/KADB semantic search. No LLM. Embeds query → pgvector similarity → MemoryContext.
+system_prompt: ""
+whitelisted_tools: []
+allowed_mcp_servers: []

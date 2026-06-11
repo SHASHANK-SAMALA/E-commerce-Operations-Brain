@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'project-4/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'project-4/**'
+
+defaults:
+  run:
+    working-directory: project-4
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install ruff
+      - run: ruff check ecommerce_brain/
+
+  unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/test_guardrails.py tests/test_routing.py -v --tb=short
+        env:
+          DATABASE_URL: sqlite:///:memory:
+          API_KEY: test-key
+          AZURE_OPENAI_ENDPOINT: https://test.openai.azure.com/
+          AZURE_OPENAI_API_KEY: test-api-key
+          AZURE_OPENAI_API_VERSION: "2024-02-01"
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install bandit detect-secrets
+      - run: bandit -r ecommerce_brain/ -ll -x ecommerce_brain/db/seed.py
+      - run: detect-secrets scan --baseline .secrets.baseline || true
+
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: unit
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: ecommerce_brain
+          POSTGRES_USER: ecommerce
+          POSTGRES_PASSWORD: ecommerce
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -e ".[dev]"
+      - run: python -m ecommerce_brain.db.seed
+        env:
+          DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce_brain
+      - run: pytest tests/ -v --tb=short -m "not slow"
+        env:
+          DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce_brain
+          REDIS_URL: redis://localhost:6379/0
+          API_KEY: test-key
+          AZURE_OPENAI_ENDPOINT: https://test.openai.azure.com/
+          AZURE_OPENAI_API_KEY: test-api-key
+          AZURE_OPENAI_API_VERSION: "2024-02-01"

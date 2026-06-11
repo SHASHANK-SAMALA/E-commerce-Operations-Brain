@@ -1,0 +1,43 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environment — never commit secrets
+.env
+.env.local
+!.env.example
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Data (generated)
+data/generated/
+*.csv
+!data/mock/*.json
+
+# LangGraph local checkpoint (MemorySaver dev mode)
+langgraph_checkpoint.db
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Secrets scan baseline
+.secrets.baseline
