@@ -14,7 +14,6 @@ import os
 import sys
 
 import pytest
-from deepeval import assert_test
 from deepeval.test_case import LLMTestCase
 
 # Ensure project root is importable
@@ -37,6 +36,14 @@ from evaluation.metrics import (
     NoExtraDomainsMetric,
     SynthesisRelevanceMetric,
 )
+
+
+def _assert_metric(metric, test_case: LLMTestCase) -> None:
+    """Run metric and assert success — avoids DeepEval's assert_test runtime hooks
+    that hang in CI when Confident AI credentials are absent.
+    """
+    metric.measure(test_case)
+    assert metric.is_successful(), f"{metric.__name__} failed: {metric.reason}"
 
 
 def _get_routing_output(query: str) -> dict:
@@ -133,7 +140,7 @@ def test_correct_intent_classification(case):
     )
 
     metric = CorrectIntentClassificationMetric()
-    assert_test(test_case, [metric])
+    _assert_metric(metric, test_case)
 
 
 @pytest.mark.parametrize("case", _ROUTABLE, ids=[c["query"][:40] for c in _ROUTABLE])
@@ -148,7 +155,7 @@ def test_correct_domain_routing(case):
     )
 
     metric = CorrectDomainRoutingMetric()
-    assert_test(test_case, [metric])
+    _assert_metric(metric, test_case)
 
 
 @pytest.mark.parametrize("case", _ROUTABLE, ids=[c["query"][:40] for c in _ROUTABLE])
@@ -168,7 +175,7 @@ def test_hitl_enforcement(case):
     )
 
     metric = HITLRequiredMetric()
-    assert_test(test_case, [metric])
+    _assert_metric(metric, test_case)
 
 
 @pytest.mark.parametrize("case", _ROUTABLE, ids=[c["query"][:40] for c in _ROUTABLE])
@@ -183,7 +190,7 @@ def test_no_unnecessary_domains(case):
     )
 
     metric = NoExtraDomainsMetric()
-    assert_test(test_case, [metric])
+    _assert_metric(metric, test_case)
 
 
 # ── Evidence Score Tests ──────────────────────────────────────────────────────
@@ -227,7 +234,7 @@ def test_synthesis_answers_query(query, summary, min_score):
         expected_output=json.dumps({"min_score": min_score}),
     )
     metric = SynthesisRelevanceMetric(threshold=min_score)
-    assert_test(test_case, [metric])
+    _assert_metric(metric, test_case)
 
 
 @pytest.mark.parametrize(
@@ -251,4 +258,4 @@ def test_evidence_score_range(domains_with_data, domains_required):
     )
 
     metric = EvidenceScoreRangeMetric()
-    assert_test(test_case, [metric])
+    _assert_metric(metric, test_case)

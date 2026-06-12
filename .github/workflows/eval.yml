@@ -47,6 +47,8 @@ jobs:
       AZURE_OPENAI_MODEL: ${{ secrets.AZURE_OPENAI_MODEL }}
       AZURE_OPENAI_EMBEDDING_MODEL: "text-embedding-3-small"
       API_KEY: "ci-test-key"
+      DEEPEVAL_TELEMETRY_OPT_OUT: "YES"
+      ERROR_REPORTING: "NO"
 
     steps:
       - uses: actions/checkout@v4
