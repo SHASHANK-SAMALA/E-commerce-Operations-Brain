@@ -10,22 +10,36 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from ecommerce_brain.config.settings import settings
 
-engine = create_engine(
-    settings.database_url,
-    pool_size=5,
-    max_overflow=10,
-    pool_pre_ping=True,
-    connect_args={"options": "-c search_path=public"},
-)
+
+def _normalize_db_url(url: str) -> str:
+    # Force the psycopg3 driver — psycopg2 is not in our dependency set.
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
 
 
-# Enable pgvector extension on first connect
-@event.listens_for(engine, "connect")
-def _enable_pgvector(dbapi_connection, connection_record):  # noqa: ARG001
-    cursor = dbapi_connection.cursor()
-    cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
-    dbapi_connection.commit()
-    cursor.close()
+_db_url = _normalize_db_url(settings.database_url)
+_is_sqlite = _db_url.startswith("sqlite")
+
+_engine_kwargs: dict = {"pool_pre_ping": True}
+if not _is_sqlite:
+    _engine_kwargs.update(
+        pool_size=5,
+        max_overflow=10,
+        connect_args={"options": "-c search_path=public"},
+    )
+
+engine = create_engine(_db_url, **_engine_kwargs)
+
+
+# Enable pgvector extension on first connect (Postgres only — SQLite has no extensions)
+if not _is_sqlite:
+    @event.listens_for(engine, "connect")
+    def _enable_pgvector(dbapi_connection, connection_record):  # noqa: ARG001
+        cursor = dbapi_connection.cursor()
+        cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        dbapi_connection.commit()
+        cursor.close()
 
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
