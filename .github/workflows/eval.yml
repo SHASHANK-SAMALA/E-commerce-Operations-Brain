@@ -60,6 +60,9 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]" --quiet
 
+      - name: Download spaCy model (required by mem0)
+        run: python -m spacy download en_core_web_sm
+
       - name: Seed database
         run: python -m ecommerce_brain.db.seed
 

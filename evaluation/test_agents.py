@@ -35,6 +35,7 @@ from evaluation.metrics import (
     EvidenceScoreRangeMetric,
     HITLRequiredMetric,
     NoExtraDomainsMetric,
+    SynthesisRelevanceMetric,
 )
 
 
@@ -186,6 +187,47 @@ def test_no_unnecessary_domains(case):
 
 
 # ── Evidence Score Tests ──────────────────────────────────────────────────────
+
+
+# ── Synthesis Quality (LLM-judge — needs Azure OpenAI credentials) ────────────
+
+
+_AZURE_KEYS_PRESENT = bool(os.getenv("AZURE_OPENAI_API_KEY")) and bool(
+    os.getenv("AZURE_OPENAI_ENDPOINT")
+)
+
+
+@pytest.mark.skipif(
+    not _AZURE_KEYS_PRESENT,
+    reason="Azure OpenAI credentials not set — skipping LLM-judge metric.",
+)
+@pytest.mark.parametrize(
+    "query,summary,min_score",
+    [
+        (
+            "Why did sales drop yesterday?",
+            "Revenue fell 12% versus the prior day, driven by stockouts on three top "
+            "SKUs and a paused acquisition campaign that reduced new-visitor traffic.",
+            0.7,
+        ),
+        (
+            "Which products are out of stock?",
+            "SKU-001, SKU-007, and SKU-014 currently show zero on-hand inventory; "
+            "the rest of the catalog is above reorder threshold.",
+            0.7,
+        ),
+    ],
+    ids=["sales_drop", "stockout_query"],
+)
+def test_synthesis_answers_query(query, summary, min_score):
+    """Synthesis summary must actually answer the user's question."""
+    test_case = LLMTestCase(
+        input=query,
+        actual_output=json.dumps({"summary": summary}),
+        expected_output=json.dumps({"min_score": min_score}),
+    )
+    metric = SynthesisRelevanceMetric(threshold=min_score)
+    assert_test(test_case, [metric])
 
 
 @pytest.mark.parametrize(

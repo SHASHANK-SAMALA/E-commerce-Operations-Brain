@@ -21,6 +21,10 @@ MCP_SERVERS = {
     "action": "http://localhost:8005/sse",
 }
 
+# Per-agent cache of (client, tools). Built lazily on first use, reused after.
+_tools_cache: dict[str, list] = {}
+_cache_lock = asyncio.Lock()
+
 
 def get_mcp_connections(agent_name: str) -> dict:
     """Return connections dict for MultiServerMCPClient."""
@@ -32,19 +36,32 @@ def get_mcp_connections(agent_name: str) -> dict:
 async def get_mcp_tools(agent_name: str):
     """Return LangChain tool objects from the MCP server WITHOUT executing them.
 
-    The LLM uses these to decide which tools to call and with what parameters.
-    Raises RuntimeError if the MCP server is unreachable.
+    Tools are cached per agent so we don't reopen an SSE connection on every
+    domain-agent invocation. Raises RuntimeError if the MCP server is unreachable.
     """
     if agent_name not in MCP_SERVERS:
         return []
 
-    from langchain_mcp_adapters.client import MultiServerMCPClient
+    if agent_name in _tools_cache:
+        return _tools_cache[agent_name]
 
-    connections = {f"{agent_name}_mcp": {"url": MCP_SERVERS[agent_name], "transport": "sse"}}
-    client = MultiServerMCPClient(connections)
-    tools = await client.get_tools()
-    log.info("mcp_tools.loaded", agent=agent_name, tools=[t.name for t in tools])
-    return tools
+    async with _cache_lock:
+        if agent_name in _tools_cache:
+            return _tools_cache[agent_name]
+
+        from langchain_mcp_adapters.client import MultiServerMCPClient
+
+        connections = {f"{agent_name}_mcp": {"url": MCP_SERVERS[agent_name], "transport": "sse"}}
+        client = MultiServerMCPClient(connections)
+        tools = await client.get_tools()
+        _tools_cache[agent_name] = tools
+        log.info("mcp_tools.loaded", agent=agent_name, tools=[t.name for t in tools])
+        return tools
+
+
+def reset_mcp_tools_cache() -> None:
+    """Drop the cached tools — useful for tests or when MCP servers restart."""
+    _tools_cache.clear()
 
 
 async def execute_mcp_tool(tool, arguments: dict, agent_name: str):

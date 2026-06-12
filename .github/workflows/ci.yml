@@ -3,16 +3,8 @@ name: CI
 on:
   push:
     branches: [main, develop]
-    paths:
-      - 'project-4/**'
   pull_request:
     branches: [main]
-    paths:
-      - 'project-4/**'
-
-defaults:
-  run:
-    working-directory: project-4
 
 jobs:
   lint:
@@ -36,10 +28,12 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -e ".[dev]"
+      - run: python -m spacy download en_core_web_sm
       - run: pytest tests/test_guardrails.py tests/test_routing.py -v --tb=short
         env:
           DATABASE_URL: sqlite:///:memory:
           API_KEY: test-key
+          OTEL_ENABLED: "false"
           # These tests mock all LLM calls; real keys are not required.
           # If secrets are configured they are used; otherwise settings fall back to defaults.
           AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
@@ -87,6 +81,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -e ".[dev]"
+      - run: python -m spacy download en_core_web_sm
       - run: python -m ecommerce_brain.db.seed
         env:
           DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce_brain
@@ -95,6 +90,7 @@ jobs:
           DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce_brain
           REDIS_URL: redis://localhost:6379/0
           API_KEY: test-key
+          OTEL_ENABLED: "false"
           # Integration tests mock all LLM calls via AsyncMock/patch.
           # Secrets are preferred so future tests that skip mocks work without changes.
           AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}

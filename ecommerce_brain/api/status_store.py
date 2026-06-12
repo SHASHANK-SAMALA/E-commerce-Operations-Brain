@@ -66,3 +66,33 @@ def update_status(query_id: str, updates: dict) -> None:
         current = {}
     current.update(updates)
     set_status(query_id, current)
+
+
+def reconcile_running_investigations() -> int:
+    """Mark any 'running' investigations as 'interrupted' on server startup.
+
+    Background tasks die when the API process exits, but Redis still holds the
+    'running' status. Without reconciliation, the frontend would poll forever.
+    Returns the number of investigations reconciled.
+    """
+    r = _get_redis()
+    if not (r and _use_redis):
+        # In-memory store is process-local, so it's already empty on restart.
+        return 0
+    reconciled = 0
+    try:
+        for key in r.scan_iter(match="investigation:*"):
+            raw = r.get(key)
+            if not raw:
+                continue
+            data = json.loads(raw)
+            if data.get("status") == "running":
+                data["status"] = "interrupted"
+                data["error"] = "Server restarted while investigation was running"
+                r.set(key, json.dumps(data, default=str), ex=_TTL_SECONDS)
+                reconciled += 1
+    except Exception as exc:
+        log.warning("status_store.reconcile_failed", error=str(exc)[:200])
+    if reconciled:
+        log.info("status_store.reconciled", count=reconciled)
+    return reconciled

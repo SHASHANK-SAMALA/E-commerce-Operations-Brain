@@ -168,6 +168,61 @@ class EvidenceScoreRangeMetric(BaseMetric):
         return self.measure(test_case)
 
 
+class SynthesisRelevanceMetric(BaseMetric):
+    """LLM-judge: does the synthesis ``summary`` actually answer the query?
+
+    Uses the project's own ``agent_llm`` (Azure OpenAI) so we don't require an
+    additional OpenAI API key just for DeepEval. Returns a 0.0–1.0 score.
+    """
+
+    def __init__(self, threshold: float = 0.7):
+        self.threshold = threshold
+        self.score = 0.0
+        self.reason = ""
+
+    @property
+    def __name__(self):
+        return "Synthesis Answer Relevance"
+
+    def _judge(self, query: str, summary: str) -> tuple[float, str]:
+        from ecommerce_brain.llm import agent_llm
+
+        prompt = (
+            "You are grading whether a business analyst's summary answers the "
+            "user's question. Reply with strict JSON: "
+            '{"score": <0.0-1.0>, "reason": "<one sentence>"}.\n\n'
+            f"User question: {query}\n\nAnalyst summary: {summary}"
+        )
+        raw = agent_llm(temperature=0.0).invoke(prompt).content
+        try:
+            obj = json.loads(raw if isinstance(raw, str) else str(raw))
+            score = float(obj.get("score", 0.0))
+            reason = str(obj.get("reason", ""))[:200]
+            return max(0.0, min(1.0, score)), reason
+        except (json.JSONDecodeError, ValueError):
+            return 0.0, f"judge returned non-JSON: {str(raw)[:120]}"
+
+    def measure(self, test_case: LLMTestCase) -> float:
+        try:
+            actual = json.loads(test_case.actual_output)
+            summary = actual.get("summary", "")
+            if not summary:
+                self.score = 0.0
+                self.reason = "synthesis produced no summary"
+                return self.score
+            self.score, self.reason = self._judge(test_case.input, summary)
+        except (json.JSONDecodeError, KeyError) as e:
+            self.score = 0.0
+            self.reason = f"Parse error: {e}"
+        return self.score
+
+    def is_successful(self) -> bool:
+        return self.score >= self.threshold
+
+    async def a_measure(self, test_case: LLMTestCase) -> float:
+        return self.measure(test_case)
+
+
 class NoExtraDomainsMetric(BaseMetric):
     """Penalizes routing that spawns unnecessary domain agents.
 

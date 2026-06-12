@@ -1,27 +1,30 @@
 """Domain agent nodes — sales, inventory, marketing, support.
 
-Agentic tool-use pattern (bind_tools loop):
-  1. Load tool definitions from MCP server (no execution yet).
-  2. LLM reads tool schemas + query and decides which tools to call.
-  3. Execute only the tools the LLM requested, in parallel.
-  4. Feed tool results back to the LLM as ToolMessages.
-  5. LLM produces a structured domain report from the results it chose.
+Agentic pattern: each domain node spins up a dedicated ``create_react_agent``
+(ReAct = Reason + Act) backed by its own MCP server.
 
-Max iterations guard prevents infinite tool-call loops.
+Flow per domain:
+  1. Load MCP tool definitions (no execution yet).
+  2. Build a ReAct agent: StateGraph(agent_node → tools_node → agent_node …).
+  3. Invoke the agent with the user query; it autonomously decides which tools
+     to call and how many times (up to _MAX_ITERATIONS rounds).
+  4. Extract the final AIMessage from the conversation and ask the LLM to
+     produce a strongly-typed domain report (SalesReport, InventoryReport, …).
+
+The four domain agents (sales, inventory, marketing, support) run in parallel
+via LangGraph's Send fan-out — each is an independent ReAct agent with its
+own LLM instance and its own MCP tool set.
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
-
 import structlog
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from opentelemetry import trace
 
+from ecommerce_brain.agents.react_agent import create_react_agent
 from ecommerce_brain.agents.registry import get_agent
 from ecommerce_brain.graph.state import GraphState
-from ecommerce_brain.guardrails.prompt_injection import check_for_injection
 from ecommerce_brain.llm import agent_llm
 from ecommerce_brain.schemas.outputs import (
     InventoryReport,
@@ -29,13 +32,13 @@ from ecommerce_brain.schemas.outputs import (
     SalesReport,
     SupportReport,
 )
-from ecommerce_brain.tools.mcp_loader import execute_mcp_tool, get_mcp_tools
+from ecommerce_brain.tools.mcp_loader import get_mcp_tools
 
 log = structlog.get_logger(__name__)
 _tracer = trace.get_tracer("ecommerce_brain.domain_agents")
 
-# Hard cap: LLM may ask for at most this many tool-call rounds per agent.
-_MAX_TOOL_ITERATIONS = 5
+# Hard cap passed into each ReAct agent — prevents runaway tool-call loops.
+_MAX_ITERATIONS = 5
 
 
 async def _call_domain_agent(domain: str, state: GraphState, schema_class) -> dict:
@@ -43,10 +46,11 @@ async def _call_domain_agent(domain: str, state: GraphState, schema_class) -> di
         span.set_attribute("query_id", state.get("query_id", ""))
         span.set_attribute("intent", state.get("intent", ""))
         span.set_attribute("domain", domain)
+
         spec = get_agent(f"{domain}_agent")
         llm = agent_llm(temperature=spec.temperature)
 
-        # ── Step 1: load tool definitions from MCP (no execution yet) ─────────
+        # ── Step 1: fetch MCP tool definitions (no execution yet) ─────────────
         try:
             tools = await get_mcp_tools(domain)
         except Exception as exc:
@@ -61,12 +65,15 @@ async def _call_domain_agent(domain: str, state: GraphState, schema_class) -> di
                 ),
             }
 
-        # Build a name→tool map for fast lookup during execution
-        tool_map = {t.name: t for t in tools}
+        # Enforce the YAML whitelist: only expose tools the agent is allowed to call.
+        if spec.whitelisted_tools:
+            tools = [t for t in tools if t.name in spec.whitelisted_tools]
 
-        # ── Step 2: bind tools to LLM so it can choose which ones to call ─────
-        llm_with_tools = llm.bind_tools(tools)
+        span.set_attribute("tools_available", [t.name for t in tools])
 
+        # ── Step 2: build a dedicated ReAct agent for this domain ─────────────
+        # Each domain gets its own agent instance with its own system prompt
+        # and its own MCP tool set — fully isolated from other domain agents.
         memory = state.get("memory_context")
         memory_hint = ""
         if memory and getattr(memory, "kedb_entries", None):
@@ -76,89 +83,58 @@ async def _call_domain_agent(domain: str, state: GraphState, schema_class) -> di
                 f" → {first.get('root_cause', '')[:200]}"
             )
 
-        messages: list = [
-            SystemMessage(content=spec.system_prompt + memory_hint),
-            HumanMessage(content=f"Query: {state['query']}\n\nAnalyse using the available tools."),
-        ]
-
-        total_tool_calls = 0
-
-        # ── Step 3-4: agentic loop — LLM decides tools, we execute, repeat ────
-        for iteration in range(_MAX_TOOL_ITERATIONS):
-            ai_response: AIMessage = await llm_with_tools.ainvoke(messages)
-            messages.append(ai_response)
-
-            # No tool calls requested — LLM is done reasoning
-            if not getattr(ai_response, "tool_calls", None):
-                break
-
-            span.set_attribute(f"iteration_{iteration}_tool_calls", len(ai_response.tool_calls))
-            total_tool_calls += len(ai_response.tool_calls)
-
-            # Validate tool names before execution (LLM sometimes hallucinates names)
-            valid_calls = [
-                tc for tc in ai_response.tool_calls
-                if tc["name"] in tool_map
-            ]
-            invalid_calls = [
-                tc["name"] for tc in ai_response.tool_calls
-                if tc["name"] not in tool_map
-            ]
-            if invalid_calls:
-                log.warning(f"{domain}_agent.invalid_tool_calls", tools=invalid_calls)
-
-            # Execute all valid tool calls in parallel
-            async def _run_tool_call(tc: dict) -> ToolMessage:
-                tool = tool_map[tc["name"]]
-                args = tc.get("args", {})
-                result = await execute_mcp_tool(tool, args, domain)
-
-                # Guardrail: sanitize tool output before feeding back to LLM
-                result_text = json.dumps(result)
-                try:
-                    check_for_injection(result_text, source=f"tool:{tc['name']}")
-                except Exception:
-                    result_text = json.dumps({"warning": "tool output sanitized — potential injection detected"})
-
-                return ToolMessage(
-                    tool_call_id=tc["id"],
-                    content=result_text,
-                )
-
-            tool_messages = await asyncio.gather(*(_run_tool_call(tc) for tc in valid_calls))
-
-            # Add error messages for any invalid tool calls so the LLM knows
-            for tc in ai_response.tool_calls:
-                if tc["name"] not in tool_map:
-                    tool_messages = list(tool_messages) + [
-                        ToolMessage(
-                            tool_call_id=tc["id"],
-                            content=json.dumps({"error": f"Unknown tool '{tc['name']}'"}),
-                        )
-                    ]
-
-            messages.extend(tool_messages)
-            log.info(
-                f"{domain}_agent.tool_round",
-                iteration=iteration,
-                tools_called=[tc["name"] for tc in valid_calls],
-            )
-
-        span.set_attribute("total_tool_calls", total_tool_calls)
-
-        # ── Step 5: structured output from the final LLM response ─────────────
-        # Add a final instruction so the LLM knows to return the structured report
-        messages.append(
-            HumanMessage(content=f"Based on the tool results above, return a {schema_class.__name__} JSON object.")
+        agent = create_react_agent(
+            llm,
+            tools=tools,
+            system_prompt=spec.system_prompt + memory_hint,
+            max_iterations=_MAX_ITERATIONS,
         )
 
+        # ── Step 3: run the ReAct loop ─────────────────────────────────────────
+        # The agent autonomously decides which tools to call, executes them via
+        # MCP, and iterates until it has enough information to answer the query.
+        query_message = HumanMessage(
+            content=f"Query: {state['query']}\n\nAnalyse using the available tools."
+        )
+        try:
+            agent_output = await agent.ainvoke({"messages": [query_message]})
+        except Exception as exc:
+            log.error(f"{domain}_agent.react_loop_failed", error=str(exc))
+            span.set_attribute("success", False)
+            span.record_exception(exc)
+            return {"success": False, "error": str(exc)}
+
+        # Count how many tool calls were made across all iterations
+        total_tool_calls = sum(
+            len(getattr(m, "tool_calls", []) or [])
+            for m in agent_output["messages"]
+            if isinstance(m, AIMessage)
+        )
+        span.set_attribute("total_tool_calls", total_tool_calls)
+        log.info(
+            f"{domain}_agent.react_done",
+            total_messages=len(agent_output["messages"]),
+            total_tool_calls=total_tool_calls,
+        )
+
+        # ── Step 4: extract structured domain report ───────────────────────────
+        # Re-invoke the LLM with the full conversation and ask for structured JSON.
+        # Using with_structured_output ensures the report matches the Pydantic schema.
+        messages = agent_output["messages"] + [
+            HumanMessage(
+                content=(
+                    f"Based on the tool results above, return a {schema_class.__name__} "
+                    "JSON object. Do not add any prose — only the JSON."
+                )
+            )
+        ]
         structured_llm = llm.with_structured_output(schema_class, method="function_calling")
         try:
             report = await structured_llm.ainvoke(messages)
             span.set_attribute("success", True)
             return {"success": True, "report": report}
         except Exception as exc:
-            log.error(f"{domain}_agent.failed", error=str(exc))
+            log.error(f"{domain}_agent.structured_output_failed", error=str(exc))
             span.set_attribute("success", False)
             span.record_exception(exc)
             return {"success": False, "error": str(exc)}

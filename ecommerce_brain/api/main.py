@@ -19,6 +19,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from ecommerce_brain.api.routers import audio, export, investigate
+from ecommerce_brain.api.status_store import reconcile_running_investigations
 from ecommerce_brain.observability.setup import setup_all
 
 log = structlog.get_logger(__name__)
@@ -27,6 +28,7 @@ log = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
     setup_all()
+    reconcile_running_investigations()
     log.info("ecommerce_brain.startup")
     yield
     log.info("ecommerce_brain.shutdown")

@@ -55,7 +55,10 @@ class Settings(BaseSettings):
     langchain_project: str = "ecommerce-brain"
 
     # ── OpenTelemetry ─────────────────────────────────────────────────────────
-    otel_enabled: bool = False
+    # Default ON: FastAPI HTTP traces + Prometheus metrics work out of the box.
+    # If no OTLP collector is reachable the SDK falls back to a console exporter.
+    # Override to false in tests / CI by setting OTEL_ENABLED=false in env.
+    otel_enabled: bool = True
     otel_service_name: str = "ecommerce-brain"
     otel_endpoint: str = "http://tempo:4317"   # OTLP gRPC collector endpoint
     prometheus_port: int = 9090

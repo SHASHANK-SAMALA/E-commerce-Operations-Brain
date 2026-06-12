@@ -1,5 +1,11 @@
 """HITL node — pauses graph execution via LangGraph interrupt().
 
+Design note: the project spec mentions Temporal as the HITL workflow engine.
+We deliberately use LangGraph's native ``interrupt()`` + ``PostgresSaver``
+instead — it gives us durable suspend/resume without the operational cost of
+running a separate Temporal cluster. If a long-running, multi-day approval
+workflow is ever needed, swap this single node for a Temporal activity.
+
 Graph state is persisted to PostgreSQL via PostgresSaver.
 Resume via POST /api/v1/investigate/{id}/resume after human decision.
 """
