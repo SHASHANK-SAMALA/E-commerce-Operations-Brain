@@ -31,7 +31,7 @@ jobs:
       - run: python -m spacy download en_core_web_sm
       - run: pytest tests/test_guardrails.py tests/test_routing.py -v --tb=short
         env:
-          DATABASE_URL: sqlite:///:memory:
+          DATABASE_URL: "sqlite:///:memory:"
           API_KEY: test-key
           OTEL_ENABLED: "false"
           # These tests mock all LLM calls; real keys are not required.
@@ -84,11 +84,11 @@ jobs:
       - run: python -m spacy download en_core_web_sm
       - run: python -m ecommerce_brain.db.seed
         env:
-          DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce_brain
+          DATABASE_URL: "postgresql://ecommerce:ecommerce@localhost:5432/ecommerce_brain"
       - run: pytest tests/ -v --tb=short -m "not slow"
         env:
-          DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce_brain
-          REDIS_URL: redis://localhost:6379/0
+          DATABASE_URL: "postgresql://ecommerce:ecommerce@localhost:5432/ecommerce_brain"
+          REDIS_URL: "redis://localhost:6379/0"
           API_KEY: test-key
           OTEL_ENABLED: "false"
           # Integration tests mock all LLM calls via AsyncMock/patch.
