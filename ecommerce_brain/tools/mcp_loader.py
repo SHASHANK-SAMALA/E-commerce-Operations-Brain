@@ -72,7 +72,7 @@ async def execute_mcp_tool(tool, arguments: dict, agent_name: str):
     try:
         result = await asyncio.wait_for(tool.ainvoke(arguments), timeout=30.0)
         return result
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.error("mcp_tool.timeout", agent=agent_name, tool=tool.name)
         return {"error": f"tool '{tool.name}' timed out after 30s"}
     except (httpx.RemoteProtocolError, httpcore.RemoteProtocolError) as exc:

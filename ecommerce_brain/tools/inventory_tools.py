@@ -71,7 +71,9 @@ def get_stockout_products(include_near_stockout: bool = True) -> dict:
                     "name": p.name,
                     "category": p.category,
                     "avg_daily_sales": p.avg_daily_sales,
-                    "estimated_revenue_loss_per_day": round(p.avg_daily_sales * p.unit_cost * 2.5, 2),
+                    "estimated_revenue_loss_per_day": round(
+                        p.avg_daily_sales * p.unit_cost * 2.5, 2
+                    ),
                 }
                 for p in oos
             ],
@@ -108,7 +110,9 @@ def get_restock_candidates(top_n: int = 10) -> list[dict]:
                 "current_stock": p.current_stock,
                 "reorder_point": p.reorder_point,
                 "suggested_qty": max(0, p.reorder_point * 3 - p.current_stock),
-                "estimated_cost": round(max(0, p.reorder_point * 3 - p.current_stock) * p.unit_cost, 2),
+                "estimated_cost": round(
+                    max(0, p.reorder_point * 3 - p.current_stock) * p.unit_cost, 2
+                ),
                 "priority": "CRITICAL" if p.current_stock == 0 else "HIGH",
             }
             for p in candidates

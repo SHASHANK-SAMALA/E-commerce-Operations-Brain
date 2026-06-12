@@ -48,7 +48,9 @@ def memory_recall_node(state: GraphState) -> dict:
 
                 for mem in mem0_results:
                     memory_text = mem.get("memory", "")
-                    normalized = _normalize_text(memory_text) if isinstance(memory_text, str) else ""
+                    normalized = (
+                        _normalize_text(memory_text) if isinstance(memory_text, str) else ""
+                    )
                     if normalized and normalized not in seen_text:
                         context.recommended_actions_from_history.append(memory_text)
                         seen_text.add(normalized)
@@ -84,5 +86,7 @@ def memory_recall_node(state: GraphState) -> dict:
             span.set_attribute("error", True)
             return {
                 "memory_context": None,
-                "audit_log": [{"node": "memory_recall", "event": "failed", "error": str(exc)[:200]}],
+                "audit_log": [
+                    {"node": "memory_recall", "event": "failed", "error": str(exc)[:200]}
+                ],
             }

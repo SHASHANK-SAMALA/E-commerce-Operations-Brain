@@ -109,7 +109,7 @@ def resume_campaign(campaign_id: str, dry_run: bool = True) -> dict:
     return result
 
 
-# ── Semantic aliases used by the agent YAML definitions ────────────────────────────────────────────────────
+# ── Semantic aliases used by the agent YAML definitions ───────────────────────
 
 class GetCampaignPerformanceInput(BaseModel):
     days: int = Field(default=7, ge=1, le=90)
@@ -120,7 +120,9 @@ class GetChannelRoasInput(BaseModel):
 
 
 class GetPausedCampaignsInput(BaseModel):
-    hours: int = Field(default=168, ge=1, description="Only show campaigns paused within this many hours")
+    hours: int = Field(
+        default=168, ge=1, description="Only show campaigns paused within this many hours"
+    )
 
 
 @register_tool(args_schema=GetCampaignPerformanceInput)

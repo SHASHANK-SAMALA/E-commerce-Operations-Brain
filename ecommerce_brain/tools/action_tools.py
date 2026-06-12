@@ -53,7 +53,9 @@ def restock_product(sku: str, quantity: int, dry_run: bool = True) -> dict:
         if not dry_run:
             product.current_stock = new_stock
             result["success"] = True
-            result["message"] = f"Restocked {sku}: {current} → {new_stock} units (ordered {quantity})"
+            result["message"] = (
+                f"Restocked {sku}: {current} → {new_stock} units (ordered {quantity})"
+            )
         else:
             result["success"] = True
             result["message"] = (

@@ -95,7 +95,9 @@ async def synthesis_node(state: GraphState) -> dict:
                 if key == "sales_report" and hasattr(report, "top_declining_category_names"):
                     d = report.model_dump(mode="python")
                     d["top_declining_categories"] = report.top_declining_category_names
-                    reports_text.append(f"### {domain} Report\n{json.dumps(d, indent=2, default=str)}")
+                    reports_text.append(
+                        f"### {domain} Report\n{json.dumps(d, indent=2, default=str)}"
+                    )
                 else:
                     reports_text.append(f"### {domain} Report\n{report.model_dump_json(indent=2)}")
 
@@ -114,7 +116,11 @@ async def synthesis_node(state: GraphState) -> dict:
         messages = [
             SystemMessage(content=_SYSTEM),
             HumanMessage(
-                content=f"Query: {state['query']}\nIntent: {state.get('intent', 'diagnose')}\nEvidence score: {evidence_score}\n\n"
+                content=(
+                    f"Query: {state['query']}\n"
+                    f"Intent: {state.get('intent', 'diagnose')}\n"
+                    f"Evidence score: {evidence_score}\n\n"
+                )
                 + "\n\n".join(reports_text)
                 + memory_hint
                 + f"\n\nInvestigation duration: {duration_ms}ms\n"
@@ -130,7 +136,11 @@ async def synthesis_node(state: GraphState) -> dict:
 
             # Hard cap — never let the LLM propose more than _MAX_ACTIONS.
             if len(report.proposed_actions) > _MAX_ACTIONS:
-                log.warning("synthesis.actions_capped", original=len(report.proposed_actions), capped_to=_MAX_ACTIONS)
+                log.warning(
+                    "synthesis.actions_capped",
+                    original=len(report.proposed_actions),
+                    capped_to=_MAX_ACTIONS,
+                )
                 report.proposed_actions = report.proposed_actions[:_MAX_ACTIONS]
 
             # ── Hard post-processing: enforce data integrity in code, not just in the prompt ──
@@ -141,7 +151,10 @@ async def synthesis_node(state: GraphState) -> dict:
             sales_report_obj = state.get("sales_report")
 
             # Channel names the LLM confuses with campaign_id values
-            _CHANNEL_NAMES = {"google", "meta", "email", "tiktok", "instagram", "facebook", "youtube", "bing"}
+            _CHANNEL_NAMES = {
+                "google", "meta", "email", "tiktok",
+                "instagram", "facebook", "youtube", "bing",
+            }
 
             valid_skus: set[str] = set()
             if inventory_report is not None:
@@ -163,37 +176,71 @@ async def synthesis_node(state: GraphState) -> dict:
                     sku = params.get("sku", "")
                     if not valid_skus:
                         # Inventory report has zero stockouts/near-stockouts — no restocks allowed
-                        log.warning("synthesis.action_blocked", action_type=atype, sku=sku, reason="no_stockouts_in_report")
+                        log.warning(
+                            "synthesis.action_blocked",
+                            action_type=atype,
+                            sku=sku,
+                            reason="no_stockouts_in_report",
+                        )
                         continue
                     if sku not in valid_skus:
-                        log.warning("synthesis.action_blocked", action_type=atype, sku=sku, reason="sku_not_in_current_report")
+                        log.warning(
+                            "synthesis.action_blocked",
+                            action_type=atype,
+                            sku=sku,
+                            reason="sku_not_in_current_report",
+                        )
                         continue
 
                 elif atype == "increase_campaign_budget":
                     cid = params.get("campaign_id", "")
                     if cid.lower() in _CHANNEL_NAMES:
                         # LLM used channel name instead of campaign_id — block, don't guess
-                        log.warning("synthesis.action_blocked", action_type=atype, reason="channel_name_used_as_id", value=cid)
+                        log.warning(
+                            "synthesis.action_blocked",
+                            action_type=atype,
+                            reason="channel_name_used_as_id",
+                            value=cid,
+                        )
                         continue
                     if marketing_report is not None:
                         roas_delta = getattr(marketing_report, "roas_delta_pct", 0.0)
                         underperforming = getattr(marketing_report, "underperforming_channels", [])
                         if roas_delta >= -10.0 and not underperforming:
-                            log.warning("synthesis.action_blocked", action_type=atype, reason="roas_acceptable_no_underperforming")
+                            log.warning(
+                                "synthesis.action_blocked",
+                                action_type=atype,
+                                reason="roas_acceptable_no_underperforming",
+                            )
                             continue
 
                 elif atype == "resume_campaign":
                     if not paused_campaign_ids:
-                        log.warning("synthesis.action_blocked", action_type=atype, reason="no_paused_campaigns")
+                        log.warning(
+                            "synthesis.action_blocked",
+                            action_type=atype,
+                            reason="no_paused_campaigns",
+                        )
                         continue
                     if params.get("campaign_id") not in paused_campaign_ids:
-                        log.warning("synthesis.action_blocked", action_type=atype, reason="campaign_id_not_in_paused_list")
+                        log.warning(
+                            "synthesis.action_blocked",
+                            action_type=atype,
+                            reason="campaign_id_not_in_paused_list",
+                        )
                         continue
 
                 elif atype == "apply_discount_promotion":
-                    rev_delta = getattr(sales_report_obj, "revenue_delta_pct", 0.0) if sales_report_obj else 0.0
+                    rev_delta = (
+                        getattr(sales_report_obj, "revenue_delta_pct", 0.0)
+                        if sales_report_obj else 0.0
+                    )
                     if rev_delta >= -5.0:
-                        log.warning("synthesis.action_blocked", action_type=atype, reason="revenue_drop_below_threshold")
+                        log.warning(
+                            "synthesis.action_blocked",
+                            action_type=atype,
+                            reason="revenue_drop_below_threshold",
+                        )
                         continue
 
                 clean_actions.append(action)

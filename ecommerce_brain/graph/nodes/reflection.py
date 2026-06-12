@@ -1,5 +1,6 @@
 """Reflection node — deterministic evidence_score, NO LLM."""
 from __future__ import annotations
+
 import structlog
 from opentelemetry import trace
 
@@ -97,8 +98,10 @@ def reflection_node(state: GraphState) -> dict:
 
         # Record Prometheus histogram (no-op when otel not enabled)
         try:
-            from ecommerce_brain.observability.setup import evidence_score_histogram
-            from ecommerce_brain.observability.setup import reinvestigation_counter
+            from ecommerce_brain.observability.setup import (
+                evidence_score_histogram,
+                reinvestigation_counter,
+            )
             evidence_score_histogram.record(evidence_score, {"intent": intent})
             if should_reinvestigate:
                 reinvestigation_counter.add(1, {"intent": intent})

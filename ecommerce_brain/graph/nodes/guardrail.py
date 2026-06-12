@@ -29,15 +29,27 @@ log = structlog.get_logger(__name__)
 
 _REJECT_PATTERNS: list[re.Pattern] = [
     # Food / cooking
-    re.compile(r"\b(cook|recipe|ingredient|bake|boil|fry|grill|roast|steam|cuisine|burger|pizza|pasta)\b", re.I),
+    re.compile(
+        r"\b(cook|recipe|ingredient|bake|boil|fry|grill|roast|steam|cuisine|burger|pizza|pasta)\b",
+        re.I,
+    ),
     # Weather
     re.compile(r"\b(weather|temperature|rain|sunny|forecast|climate|humidity)\b", re.I),
     # Entertainment
-    re.compile(r"\b(movie|song|music|artist|actor|film|tv\s*show|series|lyrics|album|singer|band|concert)\b", re.I),
+    re.compile(
+        r"\b(movie|song|music|artist|actor|film|tv\s*show|series|lyrics|album|singer|band|concert)\b",
+        re.I,
+    ),
     # Sports (names are caught via 'who is' pattern below)
-    re.compile(r"\b(cricket|football|soccer|basketball|tennis|sports\s+score|match\s+result|batsman|wicket|scorer)\b", re.I),
+    re.compile(
+        r"\b(cricket|football|soccer|basketball|tennis|sports\s+score|match\s+result|batsman|wicket|scorer)\b",
+        re.I,
+    ),
     # Geography / politics
-    re.compile(r"\b(capital\s+city|geography|history\s+of|war|politics|parliament|election)\b", re.I),
+    re.compile(
+        r"\b(capital\s+city|geography|history\s+of|war|politics|parliament|election)\b",
+        re.I,
+    ),
     # Creative / general knowledge requests
     re.compile(r"\b(joke|funny|poem|riddle|write\s+me\s+a|tell\s+me\s+a\s+story)\b", re.I),
     # Language queries
@@ -47,7 +59,10 @@ _REJECT_PATTERNS: list[re.Pattern] = [
     # "who is responsible for the sales drop?" won't reach this pattern.
     re.compile(r"\bwho\s+(is|was|are|were)\b", re.I),
     re.compile(r"\bwhat\s+is\s+(a|an)\b", re.I),
-    re.compile(r"\b(biography|birthdate|born\s+in|nationality|famous\s+for|known\s+for|net\s+worth)\b", re.I),
+    re.compile(
+        r"\b(biography|birthdate|born\s+in|nationality|famous\s+for|known\s+for|net\s+worth)\b",
+        re.I,
+    ),
     re.compile(r"\b(president|prime\s+minister|ceo\s+of|founder\s+of|country\s+of)\b", re.I),
 ]
 
@@ -198,7 +213,9 @@ def _guardrail_node_impl(state: GraphState, span) -> dict:  # noqa: ANN001
             "error": _REJECTION_RESPONSE,
             "blocked_reason": "off_topic",
             "investigation_start_ms": start_ms,
-            "audit_log": [{"node": "guardrail", "event": "blocked", "reason": "off_topic", "tier": 1}],
+            "audit_log": [
+                {"node": "guardrail", "event": "blocked", "reason": "off_topic", "tier": 1}
+            ],
         }
 
     if t1_result == "allow":
@@ -207,7 +224,9 @@ def _guardrail_node_impl(state: GraphState, span) -> dict:  # noqa: ANN001
         span.set_attribute("tier", 1)
         return {
             "investigation_start_ms": start_ms,
-            "audit_log": [{"node": "guardrail", "event": "passed", "tier": 1, "query_length": len(query)}],
+            "audit_log": [
+                {"node": "guardrail", "event": "passed", "tier": 1, "query_length": len(query)}
+            ],
         }
 
     # 4. Tier 2: LLM check for uncertain cases
@@ -222,7 +241,9 @@ def _guardrail_node_impl(state: GraphState, span) -> dict:  # noqa: ANN001
             "error": _REJECTION_RESPONSE,
             "blocked_reason": "off_topic",
             "investigation_start_ms": start_ms,
-            "audit_log": [{"node": "guardrail", "event": "blocked", "reason": "off_topic", "tier": 2}],
+            "audit_log": [
+                {"node": "guardrail", "event": "blocked", "reason": "off_topic", "tier": 2}
+            ],
         }
 
     log.info("guardrail.passed", tier=2, query_preview=query[:80])
@@ -230,5 +251,7 @@ def _guardrail_node_impl(state: GraphState, span) -> dict:  # noqa: ANN001
     span.set_attribute("tier", 2)
     return {
         "investigation_start_ms": start_ms,
-        "audit_log": [{"node": "guardrail", "event": "passed", "tier": 2, "query_length": len(query)}],
+        "audit_log": [
+            {"node": "guardrail", "event": "passed", "tier": 2, "query_length": len(query)}
+        ],
     }

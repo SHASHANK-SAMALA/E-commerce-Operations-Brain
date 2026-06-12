@@ -211,61 +211,7 @@ def get_complaint_trends(days: int = 14) -> list[dict]:
 
 @register_tool(args_schema=GetRefundRateInput)
 def get_refund_analysis(days: int = 7) -> dict:
-    """Get detailed refund analysis including rate, volume, and top SKUs — alias for get_refund_rate."""
-    return get_refund_rate(days=days)
-
-
-@register_tool(args_schema=GetComplaintVolumeInput)
-def get_sentiment_summary(days: int = 7) -> dict:
-    """Get sentiment score summary with trend classification — alias for get_review_sentiment."""
-    return get_review_sentiment(days=days)
-
-
-# ── Semantic aliases used by the agent YAML definitions ────────────────────────────────────────────────────
-
-
-@register_tool(args_schema=GetComplaintVolumeInput)
-def get_ticket_summary(days: int = 7) -> dict:
-    """Get complaint ticket summary for current vs prior period — alias for get_complaint_volume."""
-    return get_complaint_volume(days=days)
-
-
-class GetComplaintTrendsInput(BaseModel):
-    days: int = Field(default=14, ge=1, le=60)
-
-
-@register_tool(args_schema=GetComplaintTrendsInput)
-def get_complaint_trends(days: int = 14) -> list[dict]:
-    """Get daily complaint volume trend broken down by issue type for the last N days."""
-    today = date.today()
-    start = today - timedelta(days=days)
-
-    with get_session() as session:
-        rows = session.execute(
-            select(
-                MockSupportTicket.date,
-                MockSupportTicket.issue_type,
-                func.count().label("count"),
-            )
-            .where(MockSupportTicket.date >= start.isoformat())
-            .group_by(MockSupportTicket.date, MockSupportTicket.issue_type)
-            .order_by(MockSupportTicket.date)
-        ).all()
-
-    daily: dict = {}
-    for row in rows:
-        d = str(row[0])
-        if d not in daily:
-            daily[d] = {"date": d, "total": 0, "by_issue": {}}
-        daily[d]["by_issue"][row[1]] = row[2]
-        daily[d]["total"] += row[2]
-
-    return list(daily.values())
-
-
-@register_tool(args_schema=GetRefundRateInput)
-def get_refund_analysis(days: int = 7) -> dict:
-    """Get detailed refund analysis including rate, volume, and top SKUs — alias for get_refund_rate."""
+    """Get refund analysis including rate, volume, and top SKUs — alias for get_refund_rate."""
     return get_refund_rate(days=days)
 
 

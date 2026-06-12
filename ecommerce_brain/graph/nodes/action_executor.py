@@ -41,7 +41,9 @@ async def action_executor_node(state: GraphState) -> dict:
     if not approved:
         return {
             "execution_results": [],
-            "audit_log": [{"node": "action_executor", "event": "executed", "total": 0, "succeeded": 0}],
+            "audit_log": [
+                {"node": "action_executor", "event": "executed", "total": 0, "succeeded": 0}
+            ],
         }
 
     # ── Parameter normalisation ────────────────────────────────────────────────
@@ -69,7 +71,8 @@ async def action_executor_node(state: GraphState) -> dict:
             elif atype == "increase_campaign_budget":
                 # Wrong key: {channel: ...} instead of {campaign_id: ...}
                 if "campaign_id" not in params:
-                    params = {**params, "campaign_id": params.get("channel", params.get("id", "unknown"))}
+                    fallback_id = params.get("channel", params.get("id", "unknown"))
+                    params = {**params, "campaign_id": fallback_id}
                     action = {**action, "params": params}
                 if "increase_pct" not in params:
                     params = {**params, "increase_pct": params.get("increase_pct", 20.0)}
@@ -98,6 +101,7 @@ async def action_executor_node(state: GraphState) -> dict:
     tool_map = {}
     try:
         from langchain_mcp_adapters.client import MultiServerMCPClient
+
         from ecommerce_brain.tools.mcp_loader import get_mcp_connections
 
         connections = get_mcp_connections("action")
@@ -141,9 +145,19 @@ async def action_executor_node(state: GraphState) -> dict:
             result = _normalize_result(result)
             success = result.get("success", True)
             message = result.get("message", str(result))
-            results.append({"action_id": action_id, "action_type": action_type, "success": success, "message": message})
+            results.append({
+                "action_id": action_id,
+                "action_type": action_type,
+                "success": success,
+                "message": message,
+            })
             record_execution(action_type, success=success, revenue_impact=0.0)
-            log.info("action_executor.executed", action_type=action_type, source=source, success=success)
+            log.info(
+                "action_executor.executed",
+                action_type=action_type,
+                source=source,
+                success=success,
+            )
         except Exception as exc:
             results.append({"action_id": action_id, "success": False, "message": str(exc)})
             record_execution(action_type, success=False)

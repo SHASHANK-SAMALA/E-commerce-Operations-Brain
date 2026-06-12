@@ -81,7 +81,9 @@ def setup_otel() -> None:
     # Try OTLP gRPC first (requires opentelemetry-exporter-otlp-proto-grpc).
     # Fall back to ConsoleSpanExporter which is always available in the SDK.
     try:
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter  # type: ignore[import]
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+            OTLPSpanExporter,  # type: ignore[import]
+        )
         span_exporter = OTLPSpanExporter(endpoint=settings.otel_endpoint, insecure=True)
     except ImportError:
         from opentelemetry.sdk.trace.export import ConsoleSpanExporter
@@ -94,7 +96,7 @@ def setup_otel() -> None:
     # ── Metrics → Prometheus ──────────────────────────────────────────────────
     reader = PrometheusMetricReader()
     metrics_provider = MeterProvider(metric_readers=[reader])
-    # makes it global like above but for metrics not spans 
+    # makes it global like above but for metrics not spans
     metrics.set_meter_provider(metrics_provider)
 
     # Start Prometheus scrape endpoint

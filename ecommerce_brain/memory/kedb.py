@@ -7,7 +7,7 @@ Also writes new KEDB entries from completed investigations.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 from sqlalchemy import select
@@ -20,7 +20,13 @@ from ecommerce_brain.schemas.memory import MemoryContext, SimilarIncident
 log = structlog.get_logger(__name__)
 
 # Re-export so existing `from ecommerce_brain.memory.kedb import MemoryContext` still works.
-__all__ = ["MemoryContext", "SimilarIncident", "recall", "save_incident", "save_or_update_kedb_entry"]
+__all__ = [
+    "MemoryContext",
+    "SimilarIncident",
+    "recall",
+    "save_incident",
+    "save_or_update_kedb_entry",
+]
 
 # Cosine distance threshold for "same pattern" matching (0.0 = identical, 1.0 = orthogonal).
 # 0.30 ≈ 70 % semantic similarity — tight enough to avoid merging unrelated issues.
@@ -137,7 +143,7 @@ def save_or_update_kedb_entry(
 
             if existing:
                 existing.occurrence_count += 1
-                existing.last_seen = datetime.now(tz=timezone.utc)
+                existing.last_seen = datetime.now(tz=UTC)
                 # Merge resolution steps that aren't already recorded.
                 known_steps: set[str] = set(existing.resolution_steps or [])
                 merged = list(existing.resolution_steps or [])

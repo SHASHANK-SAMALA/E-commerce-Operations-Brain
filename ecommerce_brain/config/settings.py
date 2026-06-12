@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     azure_openai_whisper_deployment: str = "whisper"
 
     @model_validator(mode="after")
-    def _resolve_mini_model(self) -> "Settings":
+    def _resolve_mini_model(self) -> Settings:
         """Clear azure_openai_model_mini if it looks like an undeployed stock model name.
         This prevents 'Unknown deployment: gpt-4o-mini' errors when the user copied the
         example value but never created that Azure deployment.

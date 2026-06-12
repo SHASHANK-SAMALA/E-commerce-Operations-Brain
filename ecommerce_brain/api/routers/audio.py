@@ -48,6 +48,9 @@ async def transcribe_audio(
         if any(k in err for k in ("Route is not found", "404", "502", "deployment", "not found")):
             raise HTTPException(
                 status_code=503,
-                detail="Voice transcription is unavailable on this deployment. Please type your query instead.",
+                detail=(
+                    "Voice transcription is unavailable on this deployment. "
+                    "Please type your query instead."
+                ),
             ) from exc
         raise HTTPException(status_code=502, detail=f"Transcription failed: {exc!s}") from exc
