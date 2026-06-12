@@ -29,38 +29,53 @@ def get_mcp_connections(agent_name: str) -> dict:
     return {f"{agent_name}_mcp": {"url": MCP_SERVERS[agent_name], "transport": "sse"}}
 
 
-async def execute_mcp_tools_for_agent(agent_name: str) -> dict:
-    """Execute all tools for an agent via its MCP server.
+async def get_mcp_tools(agent_name: str):
+    """Return LangChain tool objects from the MCP server WITHOUT executing them.
 
-    Raises RuntimeError if the MCP server is unreachable — no local fallback.
-    Returns {tool_name: result} dict.
+    The LLM uses these to decide which tools to call and with what parameters.
+    Raises RuntimeError if the MCP server is unreachable.
     """
     if agent_name not in MCP_SERVERS:
-        return {}
+        return []
 
     from langchain_mcp_adapters.client import MultiServerMCPClient
 
     connections = {f"{agent_name}_mcp": {"url": MCP_SERVERS[agent_name], "transport": "sse"}}
-
-    # langchain-mcp-adapters 0.2.x: do NOT use as context manager — instantiate directly
     client = MultiServerMCPClient(connections)
     tools = await client.get_tools()
+    log.info("mcp_tools.loaded", agent=agent_name, tools=[t.name for t in tools])
+    return tools
+
+
+async def execute_mcp_tool(tool, arguments: dict, agent_name: str):
+    """Execute a single MCP tool with the given arguments.
+
+    Used by the agent loop after the LLM decides which tool to call.
+    """
+    try:
+        result = await asyncio.wait_for(tool.ainvoke(arguments), timeout=30.0)
+        return result
+    except asyncio.TimeoutError:
+        log.error("mcp_tool.timeout", agent=agent_name, tool=tool.name)
+        return {"error": f"tool '{tool.name}' timed out after 30s"}
+    except (httpx.RemoteProtocolError, httpcore.RemoteProtocolError) as exc:
+        log.error("mcp_tool.disconnected", agent=agent_name, tool=tool.name, error=str(exc)[:120])
+        return {"error": f"MCP server disconnected during '{tool.name}'"}
+    except Exception as exc:
+        return {"error": str(exc)[:200]}
+
+
+async def execute_mcp_tools_for_agent(agent_name: str) -> dict:
+    """DEPRECATED: blind pre-fetch — kept only for backwards compat during transition.
+
+    Prefer the bind_tools agent pattern in domain_agents.py instead.
+    """
+    tools = await get_mcp_tools(agent_name)
 
     async def _invoke_one(tool) -> tuple[str, object]:
-        try:
-            result = await asyncio.wait_for(tool.ainvoke({}), timeout=30.0)
-        except asyncio.TimeoutError:
-            log.error("mcp_tool.timeout", agent=agent_name, tool=tool.name)
-            result = {"error": f"tool '{tool.name}' timed out after 30s"}
-        except (httpx.RemoteProtocolError, httpcore.RemoteProtocolError) as exc:
-            log.error("mcp_tool.disconnected", agent=agent_name, tool=tool.name, error=str(exc)[:120])
-            result = {"error": f"MCP server disconnected during '{tool.name}'"}
-        except Exception as exc:
-            result = {"error": str(exc)[:200]}
-        return tool.name, result
+        return tool.name, await execute_mcp_tool(tool, {}, agent_name)
 
     pairs = await asyncio.gather(*(_invoke_one(tool) for tool in tools))
     results = dict(pairs)
-
     log.info("mcp_tools.executed", agent=agent_name, tools=list(results.keys()))
     return results

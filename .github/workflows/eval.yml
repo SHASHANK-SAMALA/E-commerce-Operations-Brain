@@ -1,0 +1,70 @@
+name: Deep Eval
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ecommerce
+          POSTGRES_PASSWORD: ecommerce
+          POSTGRES_DB: ecommerce_brain
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ecommerce -d ecommerce_brain"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce_brain
+      REDIS_URL: redis://localhost:6379/0
+      OTEL_ENABLED: "false"
+      # Azure OpenAI — stored as GitHub Actions secrets
+      AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+      AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+      AZURE_OPENAI_API_VERSION: "2024-12-01-preview"
+      AZURE_OPENAI_MODEL: ${{ secrets.AZURE_OPENAI_MODEL }}
+      AZURE_OPENAI_EMBEDDING_MODEL: "text-embedding-3-small"
+      API_KEY: "ci-test-key"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]" --quiet
+
+      - name: Seed database
+        run: python -m ecommerce_brain.db.seed
+
+      - name: Run unit + routing tests
+        run: pytest tests/ -v --tb=short -q
+
+      - name: Run deep eval suite
+        run: pytest evaluation/ -v --tb=short -q

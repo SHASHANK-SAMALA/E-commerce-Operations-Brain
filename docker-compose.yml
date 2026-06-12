@@ -38,6 +38,17 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.retention.time=7d"
 
+  tempo:
+    image: grafana/tempo:2.4.1
+    command: ["-config.file=/etc/tempo.yml"]
+    ports:
+      - "3200:3200"   # Tempo HTTP API (Grafana datasource)
+      - "4317:4317"   # OTLP gRPC (app → Tempo)
+      - "4318:4318"   # OTLP HTTP
+    volumes:
+      - ./docker/tempo.yml:/etc/tempo.yml:ro
+      - tempo_data:/tmp/tempo
+
   grafana:
     image: grafana/grafana:10.4.2
     ports:
@@ -48,9 +59,12 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./docker/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
     depends_on:
       - prometheus
+      - tempo
 
 volumes:
   postgres_data:
   grafana_data:
+  tempo_data:

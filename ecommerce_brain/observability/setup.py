@@ -8,6 +8,7 @@ import structlog
 from opentelemetry import metrics, trace
 from opentelemetry.exporter.prometheus import PrometheusMetricReader
 from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from prometheus_client import start_http_server
@@ -55,9 +56,11 @@ def setup_logging() -> None:
 
     # Silence LangGraph checkpoint deserialisation warnings — these are safe because
     # all listed modules are first-party types defined in this codebase.
+    #so this will control the logging warnings
     logging.getLogger("langgraph.checkpoint").setLevel(logging.ERROR)
     logging.getLogger("langgraph.checkpoint.postgres").setLevel(logging.ERROR)
 
+    # this will control the python warnings not logging warnings
     import warnings
     warnings.filterwarnings(
         "ignore",
@@ -72,7 +75,8 @@ def setup_otel() -> None:
         return
 
     # ── Tracing — attach a span exporter so spans are NOT silently dropped ────
-    tracer_provider = TracerProvider()
+    resource = Resource(attributes={"service.name": settings.otel_service_name})
+    tracer_provider = TracerProvider(resource=resource)
 
     # Try OTLP gRPC first (requires opentelemetry-exporter-otlp-proto-grpc).
     # Fall back to ConsoleSpanExporter which is always available in the SDK.
@@ -84,11 +88,13 @@ def setup_otel() -> None:
         span_exporter = ConsoleSpanExporter()
 
     tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))
+    #below line makes it global
     trace.set_tracer_provider(tracer_provider)
 
     # ── Metrics → Prometheus ──────────────────────────────────────────────────
     reader = PrometheusMetricReader()
     metrics_provider = MeterProvider(metric_readers=[reader])
+    # makes it global like above but for metrics not spans 
     metrics.set_meter_provider(metrics_provider)
 
     # Start Prometheus scrape endpoint

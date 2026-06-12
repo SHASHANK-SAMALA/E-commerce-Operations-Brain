@@ -40,9 +40,11 @@ jobs:
         env:
           DATABASE_URL: sqlite:///:memory:
           API_KEY: test-key
-          AZURE_OPENAI_ENDPOINT: https://test.openai.azure.com/
-          AZURE_OPENAI_API_KEY: test-api-key
-          AZURE_OPENAI_API_VERSION: "2024-02-01"
+          # These tests mock all LLM calls; real keys are not required.
+          # If secrets are configured they are used; otherwise settings fall back to defaults.
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION || '2024-12-01-preview' }}
 
   security:
     name: Security Scan
@@ -93,6 +95,8 @@ jobs:
           DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce_brain
           REDIS_URL: redis://localhost:6379/0
           API_KEY: test-key
-          AZURE_OPENAI_ENDPOINT: https://test.openai.azure.com/
-          AZURE_OPENAI_API_KEY: test-api-key
-          AZURE_OPENAI_API_VERSION: "2024-02-01"
+          # Integration tests mock all LLM calls via AsyncMock/patch.
+          # Secrets are preferred so future tests that skip mocks work without changes.
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION || '2024-12-01-preview' }}

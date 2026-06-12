@@ -16,9 +16,12 @@ import time
 from typing import Literal
 
 import structlog
+from opentelemetry import trace
 
 from ecommerce_brain.graph.state import GraphState
 from ecommerce_brain.guardrails.prompt_injection import InjectionDetected, check_for_injection
+
+_tracer = trace.get_tracer("ecommerce_brain.guardrail")
 
 log = structlog.get_logger(__name__)
 
@@ -133,14 +136,21 @@ def _tier2_llm_classify(query: str) -> bool:
 # ── Node ──────────────────────────────────────────────────────────────────────
 
 def guardrail_node(state: GraphState) -> dict:
+    with _tracer.start_as_current_span("guardrail_node") as span:
+        return _guardrail_node_impl(state, span)
+
+
+def _guardrail_node_impl(state: GraphState, span) -> dict:  # noqa: ANN001
     start_ms = int(time.time() * 1000)
     query = state["query"]
     query_id = state.get("query_id", "unknown")
+    span.set_attribute("query_id", query_id)
 
     log.info("graph.event", node="guardrail", query_id=query_id)
 
     # 1. Length check
     if len(query.strip()) < 3:
+        span.set_attribute("blocked_reason", "input_too_short")
         return {
             "error": "Query too short",
             "blocked_reason": "input_too_short",
@@ -149,6 +159,7 @@ def guardrail_node(state: GraphState) -> dict:
         }
 
     if len(query) > 2000:
+        span.set_attribute("blocked_reason", "input_too_long")
         return {
             "error": "Query exceeds 2000 character limit",
             "blocked_reason": "input_too_long",
@@ -160,6 +171,7 @@ def guardrail_node(state: GraphState) -> dict:
     try:
         check_for_injection(query, source="user_input")
     except InjectionDetected as e:
+        span.set_attribute("blocked_reason", "prompt_injection")
         return {
             "error": f"Input blocked: potential prompt injection ({e.pattern_label})",
             "blocked_reason": "prompt_injection",
@@ -180,6 +192,8 @@ def guardrail_node(state: GraphState) -> dict:
 
     if t1_result == "reject":
         log.info("guardrail.rejected", tier=1, query_preview=query[:80], query_id=query_id)
+        span.set_attribute("blocked_reason", "off_topic")
+        span.set_attribute("tier", 1)
         return {
             "error": _REJECTION_RESPONSE,
             "blocked_reason": "off_topic",
@@ -189,6 +203,8 @@ def guardrail_node(state: GraphState) -> dict:
 
     if t1_result == "allow":
         log.info("guardrail.passed", tier=1, query_preview=query[:80])
+        span.set_attribute("passed", True)
+        span.set_attribute("tier", 1)
         return {
             "investigation_start_ms": start_ms,
             "audit_log": [{"node": "guardrail", "event": "passed", "tier": 1, "query_length": len(query)}],
@@ -200,6 +216,8 @@ def guardrail_node(state: GraphState) -> dict:
 
     if not is_relevant:
         log.info("guardrail.rejected", tier=2, query_preview=query[:80], query_id=query_id)
+        span.set_attribute("blocked_reason", "off_topic")
+        span.set_attribute("tier", 2)
         return {
             "error": _REJECTION_RESPONSE,
             "blocked_reason": "off_topic",
@@ -208,6 +226,8 @@ def guardrail_node(state: GraphState) -> dict:
         }
 
     log.info("guardrail.passed", tier=2, query_preview=query[:80])
+    span.set_attribute("passed", True)
+    span.set_attribute("tier", 2)
     return {
         "investigation_start_ms": start_ms,
         "audit_log": [{"node": "guardrail", "event": "passed", "tier": 2, "query_length": len(query)}],

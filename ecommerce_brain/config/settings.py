@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     # ── OpenTelemetry ─────────────────────────────────────────────────────────
     otel_enabled: bool = False
     otel_service_name: str = "ecommerce-brain"
-    otel_endpoint: str = "http://localhost:4317"   # OTLP gRPC collector endpoint
+    otel_endpoint: str = "http://tempo:4317"   # OTLP gRPC collector endpoint
     prometheus_port: int = 9090
 
     # ── Server ────────────────────────────────────────────────────────────────
