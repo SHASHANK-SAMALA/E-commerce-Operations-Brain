@@ -60,6 +60,7 @@ dependencies = [
     "tenacity>=8.3.0",
     "aiofiles>=23.2.1",
     "python-dotenv>=1.0.0",
+    "faker>=25.0.0",
 ]
 
 [project.optional-dependencies]
