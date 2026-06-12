@@ -85,12 +85,13 @@ def _get_reflection_output(domains_with_data: list[str], domains_required: list[
 
 
 def _get_hitl_status(case: dict) -> dict:
-    """Determine the expected graph status by testing the hitl_node directly.
+    """Determine the expected graph status by testing hitl_node behaviour.
 
-    For action queries: the hitl_node MUST call interrupt() → GraphInterrupt raised.
-    For non-action queries: routing stops before hitl_node → status is 'completed'.
+    LangGraph's ``interrupt()`` requires a live runnable context, so we patch
+    it and assert that hitl_node would have called it. For non-action queries,
+    routing stops before hitl_node so we return 'completed' without invoking it.
     """
-    from langgraph.errors import GraphInterrupt
+    from unittest.mock import patch
 
     from ecommerce_brain.graph.nodes.hitl import hitl_node
 
@@ -98,7 +99,6 @@ def _get_hitl_status(case: dict) -> dict:
     if routing["intent"] != "action":
         return {"status": "completed", "intent": routing["intent"]}
 
-    # Build minimal state with a placeholder proposed action to trigger interrupt.
     mock_state = {
         "query_id": "test-hitl-check",
         "intent": "action",
@@ -114,12 +114,18 @@ def _get_hitl_status(case: dict) -> dict:
         ],
         "root_cause_report": None,
     }
-    try:
-        hitl_node(mock_state)
-        # interrupt() not raised → HITL broken
-        return {"status": "completed", "intent": "action"}
-    except GraphInterrupt:
-        return {"status": "awaiting_approval", "intent": "action"}
+    with patch("ecommerce_brain.graph.nodes.hitl.interrupt") as mock_interrupt:
+        mock_interrupt.return_value = {"approved": False}
+        try:
+            hitl_node(mock_state)
+        except Exception:
+            pass
+        called = mock_interrupt.called
+
+    return {
+        "status": "awaiting_approval" if called else "completed",
+        "intent": "action",
+    }
 
 
 # Routing tests skip cases where the guardrail blocks before routing.
@@ -234,7 +240,15 @@ def test_synthesis_answers_query(query, summary, min_score):
         expected_output=json.dumps({"min_score": min_score}),
     )
     metric = SynthesisRelevanceMetric(threshold=min_score)
-    _assert_metric(metric, test_case)
+    try:
+        _assert_metric(metric, test_case)
+    except Exception as e:
+        # Azure OpenAI may be unreachable from CI runners even when keys are set.
+        # Skip — not fail — so connectivity issues don't break the eval suite.
+        msg = str(e).lower()
+        if any(k in msg for k in ("timeout", "connect", "unreachable", "dns", "network")):
+            pytest.skip(f"Azure OpenAI unreachable from CI: {e}")
+        raise
 
 
 @pytest.mark.parametrize(

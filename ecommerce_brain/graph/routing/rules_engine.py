@@ -21,10 +21,16 @@ _RULES: list[tuple[str, list[str], str]] = [
     # are correctly classified as action, not diagnose.
     (r"\b(restock|replenish)\b.*\b(sku|product|item)\b", ["inventory"], "action"),
     (r"\b(restock|replenish)\b", ["inventory"], "action"),
-    (r"\b(resume|pause)\b.{0,30}\bcampaign\b", ["marketing"], "action"),
+    (r"\b(resume|pause)\b.{0,30}\bcampaigns?\b", ["marketing"], "action"),
     (r"\b(increase|boost).{0,20}\b(budget|spend)\b", ["marketing"], "action"),
     (r"\b(apply.{0,10}discount|run.{0,10}discount|discount.{0,10}promotion|flash\s+sale)\b", ["sales"], "action"),  # noqa: E501
-    (r"\b(fix|resolve|execute|approve)\b", ["sales", "inventory"], "action"),
+    # Domain-scoped fix/resolve rules — placed before any generic fallback so that
+    # "fix the inventory problem" routes to inventory only, not [sales, inventory].
+    (r"\b(fix|resolve)\b.{0,40}\b(stock|inventory|sku|out.of.stock|stockouts?)\b", ["inventory"], "action"),  # noqa: E501
+    (r"\b(fix|resolve)\b.{0,40}\b(campaign|ads?|marketing|promotion|roas)\b", ["marketing"], "action"),  # noqa: E501
+    (r"\b(fix|resolve)\b.{0,40}\b(complaint|refund|return|ticket|customer|support)\b", ["support"], "action"),  # noqa: E501
+    (r"\b(fix|resolve)\b.{0,40}\b(sales|revenue|orders?|aov|gmv)\b", ["sales"], "action"),
+    (r"\b(execute|approve)\b", ["sales", "inventory"], "action"),
 
     # ── Root cause (multi-domain) diagnose ────────────────────────────────────
     (r"(complaint|missing\s+order|customer\s+issue).{0,60}(drop|decline|revenue|sales)", ["sales", "inventory", "marketing", "support"], "diagnose"),  # noqa: E501
@@ -36,7 +42,7 @@ _RULES: list[tuple[str, list[str], str]] = [
     (r"\b(before|past|what\s+caused\s+last)\b", [], "memory_query"),
 
     # ── Domain-specific diagnose rules ────────────────────────────────────────
-    (r"\b(out.of.stock|stockout|out_of_stock)\b", ["inventory"], "diagnose"),
+    (r"\b(out.of.stock|stockouts?|out_of_stock)\b", ["inventory"], "diagnose"),
     (r"\b(revenue|sales|orders?|aov|average order|gmv)\b", ["sales"], "diagnose"),
     (r"\b(stock|inventory|sku)\b", ["inventory"], "diagnose"),
     (r"\b(campaign|ad\b|ads\b|marketing|promotion|roas|paused|impressions)\b", ["marketing"], "diagnose"),  # noqa: E501
