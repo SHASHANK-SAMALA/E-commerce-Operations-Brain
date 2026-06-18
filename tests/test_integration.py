@@ -246,7 +246,7 @@ class TestDomainAgentsMocked:
         ):
             state = _make_state(domains_required=["sales"])
             result = await sales_agent_node(state)
-            assert result["sales_report"] is None
+            assert result.get("sales_report") is None
             assert "failed" in result["audit_log"][0]["event"]
 
 

@@ -30,7 +30,7 @@ jobs:
       - run: pip install -e ".[dev]" --quiet
       - run: pytest tests/test_guardrails.py tests/test_routing.py -v --tb=short
         env:
-          DATABASE_URL: sqlite:///:memory:
+          DATABASE_URL: "sqlite:///:memory:"
           API_KEY: test-key
           OTEL_ENABLED: "false"
           AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
