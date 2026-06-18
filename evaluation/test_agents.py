@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import sys
+import urllib.parse
 
 import pytest
 from deepeval.test_case import LLMTestCase
@@ -211,9 +213,37 @@ _AZURE_KEYS_PRESENT = bool(os.getenv("AZURE_OPENAI_API_KEY")) and bool(
 )
 
 
+def _check_azure_reachable() -> bool:
+    """TCP probe the EPAM proxy host.  Returns False in <3 s when unreachable."""
+    if not _AZURE_KEYS_PRESENT:
+        return False
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+    if not endpoint:
+        return False
+    try:
+        parsed = urllib.parse.urlparse(endpoint)
+        host = parsed.hostname or ""
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(3)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
+_AZURE_REACHABLE = _check_azure_reachable()
+_LLM_JUDGE_SKIP_REASON = (
+    "Azure OpenAI credentials not set."
+    if not _AZURE_KEYS_PRESENT
+    else "Azure OpenAI endpoint unreachable from this runner."
+)
+
+
 @pytest.mark.skipif(
-    not _AZURE_KEYS_PRESENT,
-    reason="Azure OpenAI credentials not set — skipping LLM-judge metric.",
+    not (_AZURE_KEYS_PRESENT and _AZURE_REACHABLE),
+    reason=_LLM_JUDGE_SKIP_REASON,
 )
 @pytest.mark.parametrize(
     "query,summary,min_score",
@@ -257,8 +287,8 @@ def test_synthesis_answers_query(query, summary, min_score):  # noqa: E501
 
 
 @pytest.mark.skipif(
-    not _AZURE_KEYS_PRESENT,
-    reason="Azure OpenAI credentials not set — skipping GEval routing metric.",
+    not (_AZURE_KEYS_PRESENT and _AZURE_REACHABLE),
+    reason=_LLM_JUDGE_SKIP_REASON,
 )
 @pytest.mark.parametrize(
     "case",
