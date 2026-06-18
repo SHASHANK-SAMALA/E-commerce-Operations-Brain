@@ -11,7 +11,6 @@ from opentelemetry import trace
 from ecommerce_brain.agents.registry import get_agent
 from ecommerce_brain.graph.routing.rules_engine import route
 from ecommerce_brain.graph.state import GraphState
-from ecommerce_brain.llm import routing_llm
 from ecommerce_brain.schemas.routing import RoutingDecision
 
 log = structlog.get_logger(__name__)

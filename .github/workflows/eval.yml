@@ -25,7 +25,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-
       redis:
         image: redis:7-alpine
         ports:
@@ -40,12 +39,11 @@ jobs:
       DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce_brain
       REDIS_URL: redis://localhost:6379/0
       OTEL_ENABLED: "false"
-      # Azure OpenAI — stored as GitHub Actions secrets
       AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
       AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
       AZURE_OPENAI_API_VERSION: "2024-12-01-preview"
       AZURE_OPENAI_MODEL: ${{ secrets.AZURE_OPENAI_MODEL }}
-      AZURE_OPENAI_EMBEDDING_MODEL: "text-embedding-3-small"
+      AZURE_OPENAI_EMBEDDING_MODEL: "text-embedding-3-small-1"
       API_KEY: "ci-test-key"
       DEEPEVAL_TELEMETRY_OPT_OUT: "YES"
       ERROR_REPORTING: "NO"
@@ -53,17 +51,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
 
       - name: Install dependencies
         run: pip install -e ".[dev]" --quiet
-
-      - name: Download spaCy model (required by mem0)
-        run: python -m spacy download en_core_web_sm
 
       - name: Seed database
         run: python -m ecommerce_brain.db.seed
@@ -73,3 +67,4 @@ jobs:
 
       - name: Run deep eval suite
         run: pytest evaluation/ -v --tb=short -q
+

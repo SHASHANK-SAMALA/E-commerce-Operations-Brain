@@ -21,7 +21,7 @@ from __future__ import annotations
 import time
 
 import structlog
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 from opentelemetry import trace
 
 from ecommerce_brain.agents.react_agent import MAX_ITERATIONS, create_react_agent

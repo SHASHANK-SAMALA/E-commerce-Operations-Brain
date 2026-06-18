@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import operator
 from typing import Annotated, Any, TypedDict
+
 from ecommerce_brain.schemas.memory import MemoryContext
 from ecommerce_brain.schemas.outputs import (
     InventoryReport,
