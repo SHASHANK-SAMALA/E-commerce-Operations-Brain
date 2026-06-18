@@ -243,11 +243,12 @@ def test_synthesis_answers_query(query, summary, min_score):  # noqa: E501
     metric = SynthesisRelevanceMetric(threshold=min_score)
     try:
         _assert_metric(metric, test_case)
-    except Exception as e:
+    except BaseException as e:
         # Azure OpenAI may be unreachable from CI runners even when keys are set.
+        # Also catches pytest-timeout's Timeout(BaseException) on slow networks.
         # Skip — not fail — so connectivity issues don't break the eval suite.
         msg = str(e).lower()
-        if any(k in msg for k in ("timeout", "connect", "unreachable", "dns", "network")):
+        if any(k in msg for k in ("timeout", "connect", "unreachable", "dns", "network", "timed out")):
             pytest.skip(f"Azure OpenAI unreachable from CI: {e}")
         raise
 
@@ -292,7 +293,7 @@ def test_geval_routing_quality(case):
         assert metric.score >= 0.7, (
             f"GEval routing score too low ({metric.score:.2f}): {metric.reason}"
         )
-    except Exception as e:
+    except BaseException as e:
         msg = str(e).lower()
         if any(k in msg for k in ("timeout", "connect", "unreachable", "dns", "network", "timed out")):
             pytest.skip(f"Azure OpenAI unreachable from CI: {e}")
