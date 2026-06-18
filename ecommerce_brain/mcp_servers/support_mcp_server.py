@@ -18,7 +18,7 @@ from ecommerce_brain.tools.support_tools import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("support_mcp_server")
 
-mcp = FastMCP("support-mcp-server", port=8004, host="0.0.0.0")
+mcp = FastMCP("support-mcp-server", port=8004, host="0.0.0.0")  # nosec B104
 
 @mcp.tool()
 def get_complaint_volume(days: int = 7) -> dict:

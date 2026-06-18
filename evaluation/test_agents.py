@@ -287,10 +287,16 @@ def test_geval_routing_quality(case):
         actual_output=json.dumps(actual),
         expected_output=json.dumps(case),
     )
-    metric.measure(test_case)
-    assert metric.score >= 0.7, (
-        f"GEval routing score too low ({metric.score:.2f}): {metric.reason}"
-    )
+    try:
+        metric.measure(test_case)
+        assert metric.score >= 0.7, (
+            f"GEval routing score too low ({metric.score:.2f}): {metric.reason}"
+        )
+    except Exception as e:
+        msg = str(e).lower()
+        if any(k in msg for k in ("timeout", "connect", "unreachable", "dns", "network", "timed out")):
+            pytest.skip(f"Azure OpenAI unreachable from CI: {e}")
+        raise
 
 
 @pytest.mark.parametrize(

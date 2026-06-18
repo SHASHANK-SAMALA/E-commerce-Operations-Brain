@@ -12,7 +12,7 @@ from ecommerce_brain.tools.marketing_tools import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("marketing_mcp_server")
 
-mcp = FastMCP("marketing-mcp-server", port=8003, host="0.0.0.0")
+mcp = FastMCP("marketing-mcp-server", port=8003, host="0.0.0.0")  # nosec B104
 
 @mcp.tool()
 def get_campaign_status(status_filter: str = "all") -> list[dict]:

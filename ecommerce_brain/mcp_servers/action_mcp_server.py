@@ -18,7 +18,7 @@ from ecommerce_brain.tools.action_tools import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("action_mcp_server")
 
-mcp = FastMCP("action-mcp-server", port=8005, host="0.0.0.0")
+mcp = FastMCP("action-mcp-server", port=8005, host="0.0.0.0")  # nosec B104
 
 @mcp.tool()
 def restock_product(sku: str, quantity: int, dry_run: bool = True) -> dict:

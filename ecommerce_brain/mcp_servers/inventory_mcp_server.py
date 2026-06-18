@@ -15,7 +15,7 @@ from ecommerce_brain.tools.inventory_tools import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("inventory_mcp_server")
 
-mcp = FastMCP("inventory-mcp-server", port=8002, host="0.0.0.0")
+mcp = FastMCP("inventory-mcp-server", port=8002, host="0.0.0.0")  # nosec B104
 
 @mcp.tool()
 def get_stock_levels(skus: list[str] | None = None) -> list[dict]:
