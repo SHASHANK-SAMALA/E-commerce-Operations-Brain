@@ -48,6 +48,7 @@ from ecommerce_brain.graph.nodes.domain_agents import (
 )
 from ecommerce_brain.graph.nodes.guardrail import guardrail_node
 from ecommerce_brain.graph.nodes.hitl import hitl_node
+from ecommerce_brain.graph.nodes.memory_answer import memory_answer_node
 from ecommerce_brain.graph.nodes.memory_recall import memory_recall_node
 from ecommerce_brain.graph.nodes.memory_writer import memory_writer_node
 from ecommerce_brain.graph.nodes.reflection import reflection_node
@@ -83,6 +84,13 @@ def _fanout_edge(state: GraphState) -> list[Send]:
     return sends if sends else [Send("reflection", state)]
 
 
+def _after_memory_recall_edge(state: GraphState):
+    """Route memory_query intent to memory_answer node; all others fan out to domain agents."""
+    if state.get("intent") == "memory_query":
+        return "memory_answer"
+    return _fanout_edge(state)
+
+
 def _reflection_edge(state: GraphState) -> str:
     result = state.get("reflection_result")
     if result and result.should_reinvestigate:
@@ -105,6 +113,7 @@ def build_graph(checkpointer=None) -> Any:
     builder.add_node("guardrail", guardrail_node)
     builder.add_node("coordinator", coordinator_node)
     builder.add_node("memory_recall", memory_recall_node)
+    builder.add_node("memory_answer", memory_answer_node)
     builder.add_node("sales_agent", sales_agent_node)
     builder.add_node("inventory_agent", inventory_agent_node)
     builder.add_node("marketing_agent", marketing_agent_node)
@@ -124,8 +133,12 @@ def build_graph(checkpointer=None) -> Any:
     )
     builder.add_edge("coordinator", "memory_recall")
     builder.add_conditional_edges(
-        "memory_recall", _fanout_edge, _DOMAIN_NODE_MAP | {"reflection": "reflection"}
+        "memory_recall",
+        _after_memory_recall_edge,
+        _DOMAIN_NODE_MAP | {"reflection": "reflection", "memory_answer": "memory_answer"},
     )
+    # memory_answer skips domain agents, reflection, synthesis, and HITL
+    builder.add_edge("memory_answer", "memory_writer")
 
     # Fan-in: all domain agents → reflection
     for node in _DOMAIN_NODE_MAP.values():

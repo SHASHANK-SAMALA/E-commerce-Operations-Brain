@@ -69,15 +69,20 @@ _REJECT_PATTERNS: list[re.Pattern] = [
 _ECOMMERCE_ALLOW_KEYWORDS: frozenset[str] = frozenset({
     # Business metrics — highly domain-specific
     "revenue", "sales", "orders", "aov", "conversion", "gmv", "profit",
+    "decline", "declining", "drop", "performance",
     # Inventory — highly domain-specific
     "stock", "stockout", "sku", "restock", "inventory", "warehouse",
-    "supplier", "reorder", "backorder", "fulfillment",
+    "supplier", "reorder", "backorder", "fulfillment", "product",
     # Marketing metrics — acronyms are unambiguous
     "roas", "cpa", "cpc", "ads", "spend", "campaign",
+    "discount", "promotion", "flash", "category",
     # Commerce-specific support terms
     "refund", "return", "chargeback", "shipping", "defect",
+    "complaint", "customer", "ticket",
     # Commerce object words
     "checkout", "cart", "listing", "marketplace", "seller", "buyer",
+    # Business reporting — summary/health/report queries
+    "report", "summary", "health", "business", "incident", "overview",
 })
 
 _REJECTION_RESPONSE = (
@@ -131,10 +136,12 @@ def _tier2_llm_classify(query: str) -> bool:
     we cannot confirm relevance and should not run the full agent pipeline.
     """
     try:
-        from ecommerce_brain.llm import _routing_llm_invoke  # lazy import to avoid circular deps
-        response = _routing_llm_invoke([
-            {"role": "system", "content": _GUARDRAIL_SYSTEM_PROMPT},
-            {"role": "user", "content": query},
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        from ecommerce_brain.llm import routing_llm  # lazy import to avoid circular deps
+        response = routing_llm().invoke([
+            SystemMessage(content=_GUARDRAIL_SYSTEM_PROMPT),
+            HumanMessage(content=query),
         ])
         raw = response.content.strip()
         if raw.startswith("```"):

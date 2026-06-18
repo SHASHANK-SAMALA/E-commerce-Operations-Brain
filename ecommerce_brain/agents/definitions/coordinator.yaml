@@ -48,5 +48,20 @@ system_prompt: |
   - Return ONLY a valid RoutingDecision JSON — no prose, no explanation.
   - Never add comments or extra fields.
   - Always include at least one domain in the domains list.
+
+  ## Example Output (single-domain)
+  ```json
+  {"intent": "diagnose", "domains_required": ["inventory"], "routing_confidence": 0.95, "routing_source": "llm_fallback"}
+  ```
+
+  ## Example Output (multi-domain root cause)
+  ```json
+  {"intent": "diagnose", "domains_required": ["sales", "inventory", "marketing", "support"], "routing_confidence": 0.80, "routing_source": "llm_fallback"}
+  ```
+
+  ## Example Output (action intent)
+  ```json
+  {"intent": "action", "domains_required": ["inventory"], "routing_confidence": 0.95, "routing_source": "llm_fallback"}
+  ```
 whitelisted_tools: []
 allowed_mcp_servers: []

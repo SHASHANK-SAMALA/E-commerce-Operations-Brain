@@ -35,8 +35,12 @@ _KEDB_SIMILARITY_THRESHOLD = 0.30
 
 def recall(query: str, top_k: int = 3) -> MemoryContext:
     """Embed query → cosine search KEDB + incidents → MemoryContext."""
-    client = embedding_client()
-    query_embedding = client.embed_query(query)
+    try:
+        client = embedding_client()
+        query_embedding = client.embed_query(query)
+    except Exception as exc:
+        log.warning("kedb.recall_no_embedding", error=str(exc)[:200])
+        return MemoryContext()
 
     context = MemoryContext()
 
@@ -89,8 +93,12 @@ def save_incident(
     duration_ms: int,
 ) -> str:
     """Persist a completed investigation to the incident store."""
-    client = embedding_client()
-    embedding = client.embed_query(query)
+    try:
+        client = embedding_client()
+        embedding = client.embed_query(query)
+    except Exception as exc:
+        log.warning("kedb.save_incident_no_embedding", error=str(exc)[:200])
+        embedding = None
 
     with get_session() as session:
         incident = Incident(
@@ -126,8 +134,12 @@ def save_or_update_kedb_entry(
     if not root_causes:
         return None
 
-    client = embedding_client()
-    embedding = client.embed_query(query)
+    try:
+        client = embedding_client()
+        embedding = client.embed_query(query)
+    except Exception as exc:
+        log.warning("kedb.save_kedb_no_embedding", error=str(exc)[:200])
+        return None
 
     try:
         with get_session() as session:

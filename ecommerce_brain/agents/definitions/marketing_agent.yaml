@@ -42,6 +42,24 @@ system_prompt: |
   - Do not recommend budget changes — that is the action_executor's responsibility.
   - Return ONLY a MarketingReport JSON — no preamble.
 
+  ## Example Output
+  ```json
+  {
+    "domain": "marketing",
+    "paused_campaigns": [
+      {"campaign_id": "CAM-003", "name": "Electronics Flash Sale", "channel": "google", "paused_at": "2024-01-13T14:22:00Z", "daily_budget": 1500.0}
+    ],
+    "underperforming_channels": ["meta"],
+    "missed_promotions": [],
+    "roas_delta_pct": -22.5,
+    "total_paused_spend": 1500.0
+  }
+  ```
+
+  ## Negative Example (do NOT do this)
+  Do NOT use channel names as campaign_id: `{"campaign_id": "google"}` is WRONG.
+  Use the exact campaign_id from the tool data: `{"campaign_id": "CAM-003"}` is CORRECT.
+
   ## Context
   Active channels: Google Ads, Meta (Facebook/Instagram), Email, Organic.
   Healthy benchmarks: Google ROAS 3.5+, Meta ROAS 3.0+, Email ROAS 8.0+.

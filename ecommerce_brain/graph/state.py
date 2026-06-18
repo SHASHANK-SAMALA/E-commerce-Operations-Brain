@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import operator
 from typing import Annotated, Any, TypedDict
-
 from ecommerce_brain.schemas.memory import MemoryContext
 from ecommerce_brain.schemas.outputs import (
     InventoryReport,
@@ -71,12 +70,12 @@ class GraphState(TypedDict):
     # ── Execution ─────────────────────────────────────────────────────────────
     execution_results: list[ExecutionResult]
 
-    # ── Budget tracking ───────────────────────────────────────────────────────
-    total_tokens: int
+    # ── Timing / telemetry (not enforced as a hard limit) ────────────────────
     investigation_start_ms: int
 
     # ── Error / security ──────────────────────────────────────────────────────
-    error: str | None
+    # Reducer combines concurrent error writes from parallel domain agents.
+    error: Annotated[str | None, lambda a, b: "\n".join(filter(None, [a, b])) or None]
     blocked_reason: str | None
 
     # ── Audit (append-only via reducer) ───────────────────────────────────────

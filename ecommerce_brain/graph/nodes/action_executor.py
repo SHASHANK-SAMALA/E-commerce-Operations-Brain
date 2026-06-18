@@ -97,19 +97,14 @@ async def action_executor_node(state: GraphState) -> dict:
 
     results = []
 
-    # Try MCP first, fall back to local tools
+    # Try MCP first (cached connection — same pattern as domain agents), fall back to local tools
     tool_map = {}
     try:
-        from langchain_mcp_adapters.client import MultiServerMCPClient
+        from ecommerce_brain.tools.mcp_loader import get_mcp_tools
 
-        from ecommerce_brain.tools.mcp_loader import get_mcp_connections
-
-        connections = get_mcp_connections("action")
-        if connections:
-            client = MultiServerMCPClient(connections)
-            tools = await client.get_tools()
-            tool_map = {t.name: ("mcp", t) for t in tools}
-            log.info("action_executor.mcp_connected", tools=list(tool_map.keys()))
+        tools = await get_mcp_tools("action")
+        tool_map = {t.name: ("mcp", t) for t in tools}
+        log.info("action_executor.mcp_connected", tools=list(tool_map.keys()))
     except Exception as exc:
         log.warning("action_executor.mcp_unavailable", error=str(exc)[:120])
 

@@ -34,29 +34,32 @@ def _get_mem0():
                 "config": {
                     "connection_string": settings.database_url,
                     "collection_name": "mem0_memories",
-                    "embedding_model_dims": 384,
+                    "embedding_model_dims": 1536,
                 },
             },
             "embedder": {
-                # Use the same local sentence-transformer model as kedb.py — no Azure needed.
-                # Model is already downloaded and warm in the same process.
-                "provider": "huggingface",
+                # Use openai provider — avoids needing azure-identity package.
+                # The EPAM proxy is OpenAI-compatible; we pass api_key + base_url.
+                "provider": "openai",
                 "config": {
-                    "model": "sentence-transformers/all-MiniLM-L6-v2",
-                    "embedding_dims": 384,
+                    "model": settings.azure_openai_embedding_model,
+                    "api_key": settings.azure_openai_api_key,
+                    "openai_base_url": (
+                        settings.azure_openai_endpoint.rstrip("/")
+                        + f"/openai/deployments/{settings.azure_openai_embedding_model}"
+                    ),
                 },
             },
             "llm": {
-                "provider": "azure_openai",
+                # Same pattern for the LLM used by mem0 internally.
+                "provider": "openai",
                 "config": {
-                    # Always use the main model — mini may not be deployed on all endpoints.
                     "model": settings.azure_openai_model,
-                    "azure_kwargs": {
-                        "api_key": settings.azure_openai_api_key,
-                        "azure_deployment": settings.azure_openai_model,
-                        "azure_endpoint": settings.azure_openai_endpoint,
-                        "api_version": settings.azure_openai_api_version,
-                    },
+                    "api_key": settings.azure_openai_api_key,
+                    "openai_base_url": (
+                        settings.azure_openai_endpoint.rstrip("/")
+                        + f"/openai/deployments/{settings.azure_openai_model}"
+                    ),
                 },
             },
         }
@@ -80,6 +83,7 @@ def add_investigation_memory(
     actions_taken: list[str],
     evidence_score: float,
     session_id: str | None = None,
+    domain: str | None = None,
 ) -> bool:
     """Store a completed investigation as a semantic memory."""
     mem = _get_mem0()
@@ -92,8 +96,19 @@ def add_investigation_memory(
         f"Evidence score: {evidence_score:.2f}."
     )
 
-    user_id = session_id or "global"
+    # Scope the user_id: per-session if available, otherwise per-domain.
+    # This prevents cross-domain memory contamination (e.g. stockout patterns
+    # appearing in the marketing agent's memory context).
+    if session_id:
+        user_id = session_id
+    elif domain:
+        user_id = f"ecommerce-{domain}"
+    else:
+        user_id = "ecommerce-ops"
+
     metadata = {"query_id": query_id, "evidence_score": evidence_score}
+    if domain:
+        metadata["domain"] = domain
 
     try:
         mem.add(summary, user_id=user_id, metadata=metadata)
@@ -104,13 +119,27 @@ def add_investigation_memory(
         return False
 
 
-def recall_similar(query: str, session_id: str | None = None, limit: int = 5) -> list[dict]:
-    """Retrieve semantically similar past memories for a query."""
+def recall_similar(
+    query: str,
+    session_id: str | None = None,
+    domain: str | None = None,
+    limit: int = 5,
+) -> list[dict]:
+    """Retrieve semantically similar past memories for a query.
+
+    Uses domain-scoped user_id so the sales agent only recalls sales patterns,
+    the inventory agent only recalls inventory patterns, etc.
+    """
     mem = _get_mem0()
     if mem is None:
         return []
 
-    user_id = session_id or "global"
+    if session_id:
+        user_id = session_id
+    elif domain:
+        user_id = f"ecommerce-{domain}"
+    else:
+        user_id = "ecommerce-ops"
 
     try:
         results = mem.search(query, filters={"user_id": user_id}, top_k=limit)

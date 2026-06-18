@@ -1,4 +1,29 @@
-version: "3.9"
+
+# ── Shared environment for all Python services ────────────────────────────────
+x-backend-env: &backend-env
+  DATABASE_URL: "postgresql://ecommerce:ecommerce@postgres:5432/ecommerce_brain"
+  REDIS_URL: "redis://redis:6379/0"
+  OTEL_ENDPOINT: "http://tempo:4317"
+  OTEL_ENABLED: "true"
+  MCP_SALES_URL: "http://mcp-sales:8001/sse"
+  MCP_INVENTORY_URL: "http://mcp-inventory:8002/sse"
+  MCP_MARKETING_URL: "http://mcp-marketing:8003/sse"
+  MCP_SUPPORT_URL: "http://mcp-support:8004/sse"
+  MCP_ACTION_URL: "http://mcp-action:8005/sse"
+
+# All services that run Python code inherit these env vars from .env
+x-backend-env-file: &backend-env-file
+  env_file:
+    - .env
+
+x-backend-build: &backend-build
+  build:
+    context: .
+    dockerfile: docker/Dockerfile.backend
+
+x-postgres-dep: &postgres-dep
+  postgres:
+    condition: service_healthy
 
 services:
   postgres:
@@ -63,6 +88,104 @@ services:
     depends_on:
       - prometheus
       - tempo
+
+  # ── MCP Servers (one per domain + action) ─────────────────────────────────
+  mcp-sales:
+    <<: *backend-build
+    command: python ecommerce_brain/mcp_servers/sales_mcp_server.py
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+    depends_on:
+      <<: *postgres-dep
+
+  mcp-inventory:
+    <<: *backend-build
+    command: python ecommerce_brain/mcp_servers/inventory_mcp_server.py
+    ports:
+      - "8002:8002"
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+    depends_on:
+      <<: *postgres-dep
+
+  mcp-marketing:
+    <<: *backend-build
+    command: python ecommerce_brain/mcp_servers/marketing_mcp_server.py
+    ports:
+      - "8003:8003"
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+    depends_on:
+      <<: *postgres-dep
+
+  mcp-support:
+    <<: *backend-build
+    command: python ecommerce_brain/mcp_servers/support_mcp_server.py
+    ports:
+      - "8004:8004"
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+    depends_on:
+      <<: *postgres-dep
+
+  mcp-action:
+    <<: *backend-build
+    command: python ecommerce_brain/mcp_servers/action_mcp_server.py
+    ports:
+      - "8005:8005"
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+    depends_on:
+      <<: *postgres-dep
+
+  # ── FastAPI backend ────────────────────────────────────────────────────────
+  backend:
+    <<: *backend-build
+    command: python run_uvicorn.py
+    ports:
+      - "8000:8000"
+      - "9091:9091"   # Prometheus scrape endpoint
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+      BACKEND_HOST: "0.0.0.0"
+    depends_on:
+      <<: *postgres-dep
+      redis:
+        condition: service_healthy
+      mcp-sales:
+        condition: service_started
+      mcp-inventory:
+        condition: service_started
+      mcp-marketing:
+        condition: service_started
+      mcp-support:
+        condition: service_started
+      mcp-action:
+        condition: service_started
+
+  # ── React frontend (nginx) ─────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:

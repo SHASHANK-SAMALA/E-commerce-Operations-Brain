@@ -1,7 +1,6 @@
 import logging
 
 from mcp.server.fastmcp import FastMCP
-from pydantic import BaseModel, Field
 
 from ecommerce_brain.tools.sales_tools import (
     get_anomaly_score as _get_anomaly_score,
@@ -16,19 +15,7 @@ from ecommerce_brain.tools.sales_tools import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("sales_mcp_server")
 
-mcp = FastMCP("sales-mcp-server", port=8001)
-
-class GetRevenueMetricsInput(BaseModel):
-    days: int = Field(default=7, ge=1, le=90, description="Look-back window in days")
-    region: str = Field(default="all", description="Region filter or 'all'")
-
-class GetOrderBreakdownInput(BaseModel):
-    days: int = Field(default=7, ge=1, le=90)
-    group_by: str = Field(default="category", description="'category' or 'region'")
-
-class GetAnomalyScoreInput(BaseModel):
-    metric: str = Field(default="revenue", description="'revenue' or 'orders'")
-    days: int = Field(default=7, ge=1, le=30)
+mcp = FastMCP("sales-mcp-server", port=8001, host="0.0.0.0")
 
 @mcp.tool()
 def get_revenue_metrics(days: int = 7, region: str = "all") -> dict:

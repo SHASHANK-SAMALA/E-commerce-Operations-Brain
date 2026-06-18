@@ -39,6 +39,15 @@ llm_latency_histogram = meter.create_histogram(
     description="LLM call latency in milliseconds",
     unit="ms",
 )
+agent_call_counter = meter.create_counter(
+    "domain_agent_calls_total",
+    description="Total domain agent invocations by domain",
+)
+agent_latency_histogram = meter.create_histogram(
+    "domain_agent_latency_ms",
+    description="Domain agent execution latency by domain",
+    unit="ms",
+)
 
 
 def setup_logging() -> None:

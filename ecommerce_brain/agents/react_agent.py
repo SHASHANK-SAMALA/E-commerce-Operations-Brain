@@ -22,12 +22,14 @@ from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.graph import END, MessagesState, StateGraph
 
-from ecommerce_brain.guardrails.prompt_injection import check_for_injection
+from ecommerce_brain.guardrails.prompt_injection import InjectionDetected, check_for_injection
 
 log = structlog.get_logger(__name__)
 
 # Maximum number of tool-call rounds before the agent is forced to conclude.
-_MAX_ITERATIONS = 5
+# Exported so domain_agents.py can import it rather than redefine the same constant.
+MAX_ITERATIONS = 5
+_MAX_ITERATIONS = MAX_ITERATIONS  # backward-compat alias
 
 
 def create_react_agent(
@@ -93,10 +95,15 @@ def create_react_agent(
             )
             try:
                 check_for_injection(result_text, source=f"tool:{name}")
-            except Exception:
-                result_text = json.dumps(
-                    {"warning": "tool output sanitized — potential injection detected"}
+            except InjectionDetected as inj:
+                # A compromised tool output must abort the entire agent run.
+                # Silently continuing would let the injected payload reach the LLM.
+                log.error(
+                    "react_agent.injection_in_tool_output",
+                    tool=name,
+                    pattern=inj.pattern_label,
                 )
+                raise  # propagates to domain_agents.py exception handler
             log.info("react_agent.tool_executed", tool=name)
         except Exception as exc:
             result_text = json.dumps({"error": f"Tool '{name}' raised: {str(exc)[:200]}"})

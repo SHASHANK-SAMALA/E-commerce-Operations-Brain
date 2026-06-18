@@ -39,6 +39,25 @@ system_prompt: |
   - Identify top_declining_categories as a list of category names with their delta percentages.
   - Return ONLY a SalesReport JSON — zero prose outside the JSON structure.
 
+  ## Example Output
+  ```json
+  {
+    "domain": "sales",
+    "revenue_delta_pct": -18.5,
+    "order_delta_pct": -14.2,
+    "aov_delta_pct": -4.3,
+    "affected_regions": ["North", "West"],
+    "top_declining_categories": [
+      {"category": "Electronics", "delta_pct": -32.1},
+      {"category": "Sports", "delta_pct": -19.8}
+    ],
+    "anomaly_score": 0.87,
+    "is_drop_significant": true,
+    "date_range": "2024-01-08 to 2024-01-14",
+    "raw_metrics": {}
+  }
+  ```
+
   ## Context
   This is a multi-category e-commerce store (Electronics, Apparel, Home, Sports, Beauty,
   Pet) operating across four regions (North, South, East, West). Historical baseline is

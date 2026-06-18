@@ -1,7 +1,6 @@
 import logging
 
 from mcp.server.fastmcp import FastMCP
-from pydantic import BaseModel, Field
 
 from ecommerce_brain.tools.inventory_tools import (
     get_restock_candidates as _get_restock_candidates,
@@ -16,18 +15,7 @@ from ecommerce_brain.tools.inventory_tools import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("inventory_mcp_server")
 
-mcp = FastMCP("inventory-mcp-server", port=8002)
-
-class GetStockLevelsInput(BaseModel):
-    skus: list[str] = Field(default_factory=list, description="SKU list; empty = all products")
-
-class GetStockoutProductsInput(BaseModel):
-    include_near_stockout: bool = Field(
-        default=True, description="Include SKUs with stock < reorder_point"
-    )
-
-class GetRestockCandidatesInput(BaseModel):
-    top_n: int = Field(default=10, ge=1, le=50)
+mcp = FastMCP("inventory-mcp-server", port=8002, host="0.0.0.0")
 
 @mcp.tool()
 def get_stock_levels(skus: list[str] | None = None) -> list[dict]:

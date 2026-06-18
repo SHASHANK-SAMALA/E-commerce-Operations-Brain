@@ -1,15 +1,108 @@
 """Custom DeepEval metrics for the E-Commerce Operations Brain.
 
-These metrics test agent behavior quality — not just "does it run" but
-"does it make the right decisions."
+Two tiers:
+  1. Custom BaseMetric subclasses — deterministic, zero LLM calls, always run in CI.
+  2. GEval-based LLM metric — runs only when AZURE_OPENAI_API_KEY is set.
+     Evaluates whether the synthesis summary actually addresses the query.
 """
 
 from __future__ import annotations
 
 import json
+import os
 
 from deepeval.metrics import BaseMetric
 from deepeval.test_case import LLMTestCase
+
+
+def configure_deepeval_azure() -> bool:
+    """Configure DeepEval to use the project's Azure OpenAI deployment.
+
+    Calls ``deepeval.set_azure_openai()`` (deepeval 4.x) so that built-in
+    metrics like GEval automatically use the project's Azure endpoint.
+    Returns True if configuration succeeded, False if credentials are missing.
+    """
+    api_key = os.getenv("AZURE_OPENAI_API_KEY")
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+    api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+    model = os.getenv("AZURE_OPENAI_MODEL", "gpt-4o")
+    if not api_key or not endpoint:
+        return False
+    os.environ.setdefault("DEEPEVAL_TELEMETRY_OPT_OUT", "YES")
+    # Do NOT call deepeval.set_azure_openai() here — that global config uses
+    # openai_model_name as the Azure deployment name, which causes
+    # "Unknown deployment" errors when the deployment name differs from the
+    # model family name (e.g. deployment="gpt-4o-2024-08-06" vs model="gpt-4o").
+    # All our metrics use _ProjectLLM which routes through agent_llm() and
+    # respects AZURE_OPENAI_MODEL directly — no global DeepEval config needed.
+    return True
+
+
+def _build_deepeval_llm():
+    """Return a ``DeepEvalBaseLLM`` instance backed by the project's ``agent_llm``.
+
+    This avoids a separate Azure/OpenAI key for DeepEval — it reuses the exact
+    same AzureChatOpenAI client that the rest of the codebase uses.  Returns
+    ``None`` if deepeval is not installed or credentials are absent.
+    """
+    if not os.getenv("AZURE_OPENAI_API_KEY") or not os.getenv("AZURE_OPENAI_ENDPOINT"):
+        return None
+    try:
+        from deepeval.models.base_model import DeepEvalBaseLLM
+
+        class _ProjectLLM(DeepEvalBaseLLM):
+            """Thin shim: delegates all generation to the project's agent_llm."""
+
+            def load_model(self):
+                from ecommerce_brain.llm import agent_llm
+                return agent_llm(temperature=0.0)
+
+            def generate(self, prompt: str, schema=None) -> str:
+                response = self.load_model().invoke(prompt)
+                return response.content if hasattr(response, "content") else str(response)
+
+            async def a_generate(self, prompt: str, schema=None) -> str:
+                response = await self.load_model().ainvoke(prompt)
+                return response.content if hasattr(response, "content") else str(response)
+
+            def get_model_name(self) -> str:
+                return os.getenv("AZURE_OPENAI_MODEL", "gpt-4o")
+
+        return _ProjectLLM()
+    except (ImportError, Exception):
+        return None
+
+
+def _make_geval_routing_metric():
+    """Create a GEval metric that checks routing quality using the project's LLM.
+
+    Uses the ``_ProjectLLM`` wrapper so the same Azure credentials that power
+    the application are reused — no extra API key needed.  Returns ``None`` if
+    deepeval is not installed or credentials are absent.
+    """
+    llm = _build_deepeval_llm()
+    if llm is None:
+        return None
+    try:
+        from deepeval.metrics import GEval
+        from deepeval.test_case import LLMTestCaseParams
+        return GEval(
+            name="Routing Quality",
+            criteria=(
+                "The routing decision correctly identifies all relevant business domains "
+                "for the given e-commerce operations query. No false positives "
+                "(irrelevant domains) and no false negatives (missed domains)."
+            ),
+            evaluation_params=[
+                LLMTestCaseParams.INPUT,
+                LLMTestCaseParams.ACTUAL_OUTPUT,
+                LLMTestCaseParams.EXPECTED_OUTPUT,
+            ],
+            model=llm,
+            threshold=0.7,
+        )
+    except Exception:
+        return None
 
 
 class CorrectDomainRoutingMetric(BaseMetric):

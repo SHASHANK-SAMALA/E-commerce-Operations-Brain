@@ -11,6 +11,7 @@ from opentelemetry import trace
 from ecommerce_brain.agents.registry import get_agent
 from ecommerce_brain.graph.routing.rules_engine import route
 from ecommerce_brain.graph.state import GraphState
+from ecommerce_brain.llm import routing_llm
 from ecommerce_brain.schemas.routing import RoutingDecision
 
 log = structlog.get_logger(__name__)
@@ -39,14 +40,14 @@ def coordinator_node(state: GraphState) -> dict:
         # Stage 2: LLM fallback only when rules confidence is low
         if decision.routing_confidence < 0.7:
             log.info("coordinator.llm_fallback", query_preview=query[:50])
-            from ecommerce_brain.llm import _routing_llm_invoke
+            from ecommerce_brain.llm import routing_llm
             spec = get_agent("coordinator")
             messages = [
                 SystemMessage(content=spec.system_prompt),
                 HumanMessage(content=_ROUTING_QUERY_TEMPLATE.format(query=query)),
             ]
             try:
-                response = _routing_llm_invoke(messages)
+                response = routing_llm().invoke(messages)
                 raw = response.content.strip()
                 # Strip markdown code fences if present
                 if raw.startswith("```"):

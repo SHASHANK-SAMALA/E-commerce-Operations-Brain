@@ -1,7 +1,6 @@
 import logging
 
 from mcp.server.fastmcp import FastMCP
-from pydantic import BaseModel, Field
 
 from ecommerce_brain.tools.marketing_tools import (
     get_ad_performance as _get_ad_performance,
@@ -13,13 +12,7 @@ from ecommerce_brain.tools.marketing_tools import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("marketing_mcp_server")
 
-mcp = FastMCP("marketing-mcp-server", port=8003)
-
-class GetCampaignStatusInput(BaseModel):
-    status_filter: str = Field(default="all", description="'all', 'active', or 'paused'")
-
-class GetAdPerformanceInput(BaseModel):
-    channel: str = Field(default="all", description="Channel filter or 'all'")
+mcp = FastMCP("marketing-mcp-server", port=8003, host="0.0.0.0")
 
 @mcp.tool()
 def get_campaign_status(status_filter: str = "all") -> list[dict]:

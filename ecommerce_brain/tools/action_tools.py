@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from ecommerce_brain.db.engine import get_session
-from ecommerce_brain.db.models import MockProduct
+from ecommerce_brain.db.models import MockCampaign, MockProduct
 from ecommerce_brain.tools.registry import register_tool
 
 
@@ -118,3 +118,46 @@ def apply_discount_promotion(category: str, discount_pct: float, dry_run: bool =
             f"DRY RUN: Would apply {discount_pct}% discount to all {category} products"
         )
     return result
+
+
+class ResumeCampaignInput(BaseModel):
+    campaign_id: str
+    dry_run: bool = Field(default=True)
+
+
+@register_tool(args_schema=ResumeCampaignInput)
+def resume_campaign(campaign_id: str, dry_run: bool = True) -> dict:
+    """Resume a paused campaign. dry_run=True (default) — validate only, don't execute."""
+    if not campaign_id:
+        return {"error": "campaign_id is required. Call get_paused_campaigns first."}
+    with get_session() as session:
+        campaign = session.get(MockCampaign, campaign_id)
+        if not campaign:
+            return {"success": False, "error": f"Campaign {campaign_id} not found"}
+        if campaign.status == "active":
+            return {"success": False, "error": f"Campaign {campaign_id} is already active"}
+
+        result = {
+            "campaign_id": campaign_id,
+            "name": campaign.name,
+            "channel": campaign.channel,
+            "daily_budget": campaign.daily_budget,
+            "dry_run": dry_run,
+            "action": "resume_campaign",
+            "estimated_daily_revenue": round(campaign.daily_budget * 3.8, 2),
+        }
+
+        if not dry_run:
+            campaign.status = "active"
+            campaign.paused_at = None
+            result["success"] = True
+            result["message"] = f"Campaign {campaign_id} resumed"
+        else:
+            result["success"] = True
+            result["message"] = (
+                f"DRY RUN: Campaign {campaign_id} would be resumed"
+                f" — estimated +${result['estimated_daily_revenue']}/day"
+            )
+
+    return result
+

@@ -35,6 +35,7 @@ from evaluation.metrics import (
     HITLRequiredMetric,
     NoExtraDomainsMetric,
     SynthesisRelevanceMetric,
+    _make_geval_routing_metric,
 )
 
 
@@ -232,7 +233,7 @@ _AZURE_KEYS_PRESENT = bool(os.getenv("AZURE_OPENAI_API_KEY")) and bool(
     ],
     ids=["sales_drop", "stockout_query"],
 )
-def test_synthesis_answers_query(query, summary, min_score):
+def test_synthesis_answers_query(query, summary, min_score):  # noqa: E501
     """Synthesis summary must actually answer the user's question."""
     test_case = LLMTestCase(
         input=query,
@@ -249,6 +250,47 @@ def test_synthesis_answers_query(query, summary, min_score):
         if any(k in msg for k in ("timeout", "connect", "unreachable", "dns", "network")):
             pytest.skip(f"Azure OpenAI unreachable from CI: {e}")
         raise
+
+
+# ── GEval Routing Quality (LLM-judge) ────────────────────────────────────────
+
+
+@pytest.mark.skipif(
+    not _AZURE_KEYS_PRESENT,
+    reason="Azure OpenAI credentials not set — skipping GEval routing metric.",
+)
+@pytest.mark.parametrize(
+    "case",
+    [
+        c for c in _ROUTABLE
+        if c["query"] in (
+            "Why did sales drop yesterday?",
+            "Which products are out of stock?",
+            "Summarize yesterday's business health",
+        )
+    ],
+    ids=lambda c: c["query"][:40],
+)
+def test_geval_routing_quality(case):
+    """GEval LLM-judge: routing must correctly identify all relevant domains.
+
+    Uses _ProjectLLM (the project's own AzureChatOpenAI) so no separate
+    DeepEval Azure config is needed and 'unknown deployment' errors can't occur.
+    """
+    metric = _make_geval_routing_metric()
+    if metric is None:
+        pytest.skip("GEval metric unavailable (Azure creds missing or deepeval not installed).")
+
+    actual = _get_routing_output(case["query"])
+    test_case = LLMTestCase(
+        input=case["query"],
+        actual_output=json.dumps(actual),
+        expected_output=json.dumps(case),
+    )
+    metric.measure(test_case)
+    assert metric.score >= 0.7, (
+        f"GEval routing score too low ({metric.score:.2f}): {metric.reason}"
+    )
 
 
 @pytest.mark.parametrize(

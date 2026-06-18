@@ -63,6 +63,16 @@ RULES for proposed_actions:
 - If intent is NOT "action", proposed_actions MUST be an empty list.
 - If the query is purely diagnostic with no clear operational lever, omit proposed_actions.
 
+NEGATIVE EXAMPLES — these are the most common LLM mistakes, all will be REJECTED:
+  ✗ {{"action_type": "restock_product", "params": {{"skus": ["ELEC-001", "ELEC-004"]}}}}  ← bulk list
+  ✓ ONE action per SKU: {{"action_type": "restock_product", "params": {{"sku": "ELEC-001", "quantity": 500}}}}
+
+  ✗ {{"action_type": "increase_campaign_budget", "params": {{"campaign_id": "google"}}}}  ← channel name
+  ✓ Use exact campaign_id from data: {{"action_type": "increase_campaign_budget", "params": {{"campaign_id": "CAM-003", "increase_pct": 20.0}}}}
+
+  ✗ {{"action_type": "apply_discount_promotion", "params": {{"category": ["Electronics", "Sports"]}}}}  ← list
+  ✓ ONE action per category: {{"action_type": "apply_discount_promotion", "params": {{"category": "Electronics", "discount_pct": 10.0}}}}
+
 For root_causes: include exact metrics, domain, evidence, and confidence level.
 The summary field must be 2-4 sentences covering all key findings with numbers.
 Return only the RootCauseReport JSON — no prose.
@@ -113,6 +123,28 @@ async def synthesis_node(state: GraphState) -> dict:
                 "\n=== END HISTORICAL REFERENCE ==="
             )
 
+        # ── KADB: surface historical action success rates ─────────────────────
+        kadb_context = ""
+        try:
+            action_types = ["restock_product", "resume_campaign", "increase_campaign_budget", "apply_discount_promotion"]
+            kadb_lines = []
+            for at in action_types:
+                stats = get_action_stats(at)
+                if stats["total_executions"] > 0:
+                    kadb_lines.append(
+                        f"  {at}: {stats['total_executions']} past executions, "
+                        f"{(stats['success_rate'] or 0) * 100:.0f}% success rate, "
+                        f"avg revenue impact ${stats['avg_revenue_impact']:.0f}"
+                    )
+            if kadb_lines:
+                kadb_context = (
+                    "\n\n=== ACTION SUCCESS HISTORY (use to set historical_success_rate on proposed actions) ===\n"
+                    + "\n".join(kadb_lines)
+                    + "\n=== END ACTION HISTORY ==="
+                )
+        except Exception:
+            pass
+
         messages = [
             SystemMessage(content=_SYSTEM),
             HumanMessage(
@@ -123,6 +155,7 @@ async def synthesis_node(state: GraphState) -> dict:
                 )
                 + "\n\n".join(reports_text)
                 + memory_hint
+                + kadb_context
                 + f"\n\nInvestigation duration: {duration_ms}ms\n"
                 + f"Return a RootCauseReport JSON with query_id='{state['query_id']}'."
             ),
@@ -131,8 +164,19 @@ async def synthesis_node(state: GraphState) -> dict:
         llm = synthesis_llm()
         structured_llm = llm.with_structured_output(RootCauseReport, method="function_calling")
 
+        llm_start_ms = int(time.time() * 1000)
         try:
             report: RootCauseReport = await structured_llm.ainvoke(messages)
+        finally:
+            try:
+                from ecommerce_brain.observability.setup import llm_latency_histogram
+                llm_latency_histogram.record(
+                    int(time.time() * 1000) - llm_start_ms, {"node": "synthesis"}
+                )
+            except Exception:
+                pass
+
+        try:
 
             # Hard cap — never let the LLM propose more than _MAX_ACTIONS.
             if len(report.proposed_actions) > _MAX_ACTIONS:

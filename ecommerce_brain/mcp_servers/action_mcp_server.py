@@ -1,7 +1,6 @@
 import logging
 
 from mcp.server.fastmcp import FastMCP
-from pydantic import BaseModel, Field
 
 from ecommerce_brain.tools.action_tools import (
     apply_discount_promotion as _apply_discount_promotion,
@@ -12,29 +11,14 @@ from ecommerce_brain.tools.action_tools import (
 from ecommerce_brain.tools.action_tools import (
     restock_product as _restock_product,
 )
-from ecommerce_brain.tools.marketing_tools import (
+from ecommerce_brain.tools.action_tools import (
     resume_campaign as _resume_campaign,
 )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("action_mcp_server")
 
-mcp = FastMCP("action-mcp-server", port=8005)
-
-class RestockProductInput(BaseModel):
-    sku: str
-    quantity: int = Field(ge=1, le=10000)
-    dry_run: bool = Field(default=True)
-
-class IncreaseCampaignBudgetInput(BaseModel):
-    campaign_id: str
-    increase_pct: float = Field(ge=1.0, le=200.0, description="Percentage increase")
-    dry_run: bool = Field(default=True)
-
-class ApplyDiscountInput(BaseModel):
-    category: str
-    discount_pct: float = Field(ge=1.0, le=50.0)
-    dry_run: bool = Field(default=True)
+mcp = FastMCP("action-mcp-server", port=8005, host="0.0.0.0")
 
 @mcp.tool()
 def restock_product(sku: str, quantity: int, dry_run: bool = True) -> dict:

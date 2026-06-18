@@ -1,7 +1,6 @@
 import logging
 
 from mcp.server.fastmcp import FastMCP
-from pydantic import BaseModel, Field
 
 from ecommerce_brain.tools.support_tools import (
     get_common_issues as _get_common_issues,
@@ -19,17 +18,7 @@ from ecommerce_brain.tools.support_tools import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("support_mcp_server")
 
-mcp = FastMCP("support-mcp-server", port=8004)
-
-class GetComplaintVolumeInput(BaseModel):
-    days: int = Field(default=7, ge=1, le=60)
-
-class GetRefundRateInput(BaseModel):
-    days: int = Field(default=7, ge=1, le=60)
-
-class GetCommonIssuesInput(BaseModel):
-    days: int = Field(default=7, ge=1, le=60)
-    top_n: int = Field(default=5, ge=1, le=20)
+mcp = FastMCP("support-mcp-server", port=8004, host="0.0.0.0")
 
 @mcp.tool()
 def get_complaint_volume(days: int = 7) -> dict:

@@ -25,7 +25,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from ecommerce_brain.db.engine import Base
 from ecommerce_brain.llm import EMBEDDING_DIM
 
-_EMBEDDING_DIM = EMBEDDING_DIM  # 384 for all-MiniLM-L6-v2
+_EMBEDDING_DIM = EMBEDDING_DIM  # 1536 for text-embedding-3-small
 
 
 class Incident(Base):

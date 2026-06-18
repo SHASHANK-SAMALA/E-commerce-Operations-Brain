@@ -41,6 +41,21 @@ system_prompt: |
   - Do not recommend actions beyond restock — that is the action_executor's job.
   - Return ONLY an InventoryReport JSON — no preamble, no explanation outside JSON.
 
+  ## Example Output
+  ```json
+  {
+    "domain": "inventory",
+    "stockouts": [
+      {"sku": "ELEC-001", "name": "Wireless Earbuds Pro", "time_oos_hours": 18.0, "impressions_lost": 340, "suggested_restock_qty": 500}
+    ],
+    "near_stockout_skus": ["SPORT-004", "HOME-004"],
+    "revenue_impact_estimate": 3780.0,
+    "restock_urgency": "CRITICAL",
+    "top_affected_skus": ["ELEC-001", "SPORT-001"],
+    "cart_abandonment_spike": true
+  }
+  ```
+
   ## Context
   High-velocity SKUs: Electronics (ELEC-*) and Sports (SPORT-*) sell 15–45 units/day.
   Medium-velocity: Beauty (BEAU-*) and Apparel (APP-*) sell 8–25 units/day.

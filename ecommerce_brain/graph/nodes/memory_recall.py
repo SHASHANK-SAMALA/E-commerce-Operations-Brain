@@ -1,6 +1,12 @@
-"""Memory recall node — KEDB pgvector search + Mem0 semantic recall."""
+"""Memory recall node — KEDB pgvector search + Mem0 semantic recall.
+
+Defined as async and wraps the synchronous SQLAlchemy kedb.recall() call in
+a thread-pool executor so the async LangGraph event loop is never blocked.
+"""
 
 from __future__ import annotations
+
+import asyncio
 
 import structlog
 from opentelemetry import trace
@@ -18,12 +24,15 @@ def _normalize_text(value: str) -> str:
     return " ".join(value.strip().lower().split())
 
 
-def memory_recall_node(state: GraphState) -> dict:
+async def memory_recall_node(state: GraphState) -> dict:
     with _tracer.start_as_current_span("memory_recall_node") as span:
         query = state["query"]
         span.set_attribute("query_id", state.get("query_id", ""))
         try:
-            context = kedb.recall(query, top_k=3)
+            # Run synchronous SQLAlchemy calls in a thread pool so the async
+            # LangGraph event loop is never blocked during DB I/O.
+            loop = asyncio.get_event_loop()
+            context = await loop.run_in_executor(None, kedb.recall, query, 3)
 
             # Layer 3: Mem0 semantic recall for natural language memory
             mem0_results = recall_similar(query, session_id=state.get("session_id"), limit=3)

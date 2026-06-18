@@ -1,11 +1,14 @@
-"""Investigation router — start investigation, poll status, resume after HITL."""
+"""Investigation router — start investigation, poll status, stream via SSE, resume after HITL."""
 
 from __future__ import annotations
 
+import asyncio
+import json
 import time
 
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from ecommerce_brain.api.deps import require_api_key
 from ecommerce_brain.api.status_store import get_status, set_status, update_status
@@ -134,6 +137,12 @@ async def start_investigation(
 
     set_status(query_id, {"status": "running", "thread_id": thread_id, "query": req.query})
 
+    try:
+        from ecommerce_brain.observability.setup import investigation_counter
+        investigation_counter.add(1, {"intent": "unknown"})
+    except Exception:
+        pass
+
     background_tasks.add_task(_run_investigation, query_id, thread_id, initial_state)
 
     return {"query_id": query_id, "status": "running"}
@@ -146,6 +155,44 @@ def poll_status(query_id: str, _: str = Depends(require_api_key)):
     if data is None:
         raise HTTPException(status_code=404, detail="Investigation not found")
     return data
+
+
+@router.get("/{query_id}/stream")
+async def stream_investigation_status(
+    query_id: str,
+    _: str = Depends(require_api_key),
+):
+    """SSE stream — client receives real-time status updates without polling.
+
+    Connect with: EventSource('/api/v1/investigate/{id}/stream')
+    Each 'data:' event is a JSON status object identical to the /status response.
+    The stream closes automatically when the investigation reaches a terminal state.
+    """
+    async def event_generator():
+        last_data: dict | None = None
+        _TERMINAL = {"completed", "blocked", "error", "pending_approval", "interrupted"}
+        for _ in range(720):  # 6-minute hard cap (720 × 0.5s)
+            current = get_status(query_id)
+            if current and current != last_data:
+                last_data = current
+                yield f"data: {json.dumps(current, default=str)}\n\n"
+                if current.get("status") in _TERMINAL:
+                    break
+            await asyncio.sleep(0.5)
+        yield 'data: {"status": "stream_end"}\n\n'
+
+    if get_status(query_id) is None:
+        raise HTTPException(status_code=404, detail="Investigation not found")
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # disable nginx response buffering
+        },
+    )
 
 
 @router.post("/{query_id}/resume")

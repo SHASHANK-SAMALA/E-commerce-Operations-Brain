@@ -45,6 +45,22 @@ system_prompt: |
   - Never recommend refunds or compensation — that is outside this agent's scope.
   - Return ONLY a SupportReport JSON — no preamble, no commentary outside JSON.
 
+  ## Example Output
+  ```json
+  {
+    "domain": "support",
+    "complaint_spike": true,
+    "complaint_delta_pct": 45.2,
+    "refund_rate_delta_pct": 8.1,
+    "sentiment_score": 0.31,
+    "top_issues": [
+      {"issue_type": "out_of_stock", "count": 42, "example_ticket": "Item shows available but won't add to cart"},
+      {"issue_type": "shipping_delay", "count": 28, "example_ticket": "Order placed 5 days ago, no update"}
+    ],
+    "top_refund_skus": ["ELEC-001", "APP-003"]
+  }
+  ```
+
   ## Context
   Normal daily complaint volume: 12–20 tickets. Spike threshold: > 28 tickets/day.
   Common issue types: out_of_stock, shipping_delay, product_defect, wrong_item,

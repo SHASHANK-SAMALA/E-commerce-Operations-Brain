@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # Set AZURE_OPENAI_MODEL_MINI in .env only if you have a separate mini deployment.
     # Leave blank to share the same deployment as azure_openai_model.
     azure_openai_model_mini: str = ""
-    azure_openai_embedding_model: str = "text-embedding-3-small"
+    azure_openai_embedding_model: str = "text-embedding-3-small-1"
     azure_openai_whisper_deployment: str = "whisper"
 
     @model_validator(mode="after")
@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     otel_enabled: bool = True
     otel_service_name: str = "ecommerce-brain"
     otel_endpoint: str = "http://tempo:4317"   # OTLP gRPC collector endpoint
-    prometheus_port: int = 9090
+    prometheus_port: int = 9091  # 9091 = app metrics scrape port (9090 = Prometheus server)
 
     # ── Server ────────────────────────────────────────────────────────────────
     backend_host: str = "127.0.0.1"
@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     # ── Routing fallback (optional Mistral via Ollama) ─────────────────────────
     use_local_routing_llm: bool = False
     ollama_base_url: str = "http://localhost:11434"
+
+    # ── MCP Server URLs (override in docker via env; localhost = dev default) ─────────
+    mcp_sales_url: str = "http://localhost:8001/sse"
+    mcp_inventory_url: str = "http://localhost:8002/sse"
+    mcp_marketing_url: str = "http://localhost:8003/sse"
+    mcp_support_url: str = "http://localhost:8004/sse"
+    mcp_action_url: str = "http://localhost:8005/sse"
 
     model_config = {
         "env_file": ".env",
