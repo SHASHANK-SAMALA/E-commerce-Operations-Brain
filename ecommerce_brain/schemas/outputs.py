@@ -5,20 +5,45 @@ Memory context (MemoryContext, SimilarIncident) live in schemas/memory.py.
 
 from __future__ import annotations
 
+import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 
 # ── Stockout (used in InventoryReport) ────────────────────────────────────────
+def _extract_first_number(value) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        match = re.search(r"-?\d+(?:\.\d+)?", value.replace(",", ""))
+        if match:
+            return float(match.group(0))
+    return None
+
+
 class StockoutItem(BaseModel):
     sku: str
     name: str
     time_oos_hours: float
     impressions_lost: int
     suggested_restock_qty: int
+
+    @field_validator("time_oos_hours", mode="before")
+    @classmethod
+    def _coerce_time_oos_hours(cls, value):
+        parsed = _extract_first_number(value)
+        return max(parsed or 0.0, 0.0)
+
+    @field_validator("impressions_lost", "suggested_restock_qty", mode="before")
+    @classmethod
+    def _coerce_count_fields(cls, value):
+        parsed = _extract_first_number(value)
+        return max(int(parsed or 0), 0)
 
 
 # ── Category revenue (used in SalesReport) ────────────────────────────────────
@@ -99,6 +124,13 @@ class MarketingReport(BaseModel):
     roas_delta_pct: float = 0.0
     total_paused_spend: float = 0.0
 
+    @field_validator("roas_delta_pct", mode="before")
+    @classmethod
+    def _default_roas_delta_pct(cls, value):
+        if value is None:
+            return 0.0
+        return value
+
 
 class SupportReport(BaseModel):
     domain: Literal["support"] = "support"
@@ -128,6 +160,13 @@ class RootCause(BaseModel):
     evidence: str
     confidence: Literal["HIGH", "MEDIUM", "LOW"]
 
+    @classmethod
+    def model_validate(cls, obj, *args, **kwargs):
+        # OSS models (e.g. gpt-oss-120b) sometimes return "issue" instead of "cause".
+        if isinstance(obj, dict) and "cause" not in obj and "issue" in obj:
+            obj = {**obj, "cause": obj["issue"]}
+        return super().model_validate(obj, *args, **kwargs)
+
 
 class ProposedAction(BaseModel):
     action_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
@@ -150,7 +189,7 @@ class RootCauseReport(BaseModel):
     similar_past_incidents: list[str] = Field(default_factory=list)
     investigation_duration_ms: int
     total_tokens_used: int
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ── Action execution ───────────────────────────────────────────────────────────
@@ -165,7 +204,7 @@ class ExecutionResult(BaseModel):
 
 # ── Audit ─────────────────────────────────────────────────────────────────────
 class AuditEntry(BaseModel):
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     node: str
     event: str
     details: dict = Field(default_factory=dict)

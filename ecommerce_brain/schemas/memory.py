@@ -21,3 +21,7 @@ class MemoryContext:
     kedb_entries: list[dict] = field(default_factory=list)
     historical_pattern_found: bool = False
     recommended_actions_from_history: list[str] = field(default_factory=list)
+    # Domain-scoped mem0 recalls — keyed by domain name ("sales", "inventory", etc.).
+    # Populated in memory_recall_node; consumed by _get_domain_memory_hint so that
+    # inventory patterns never bleed into the sales or marketing agent context.
+    domain_memories: dict[str, list[str]] = field(default_factory=dict)

@@ -49,6 +49,13 @@ class Base(DeclarativeBase):
     pass
 
 
+def initialize_database() -> None:
+    """Import ORM models and create any missing tables."""
+    from ecommerce_brain.db import models  # noqa: F401
+
+    Base.metadata.create_all(engine)
+
+
 @contextmanager
 def get_session() -> Generator[Session, None, None]:
     session = SessionLocal()

@@ -19,6 +19,13 @@ def register_tool(func: Callable | None = None, **kwargs: Any) -> Callable:
 
     def decorator(f: Callable) -> Callable:
         wrapped: BaseTool = tool(f, **kwargs)
+        if f.__name__ in registry:
+            import warnings
+            warnings.warn(
+                f"Tool '{f.__name__}' is already registered — overwriting. "
+                "Remove the duplicate @register_tool declaration.",
+                stacklevel=3,
+            )
         registry[f.__name__] = wrapped
         # Return the original function so importing modules receive a callable
         # (MCP servers expect to import the real function, not the wrapped tool)

@@ -17,11 +17,20 @@ log = structlog.get_logger(__name__)
 _INJECTION_PATTERNS: list[tuple[str, str]] = [
     # Direct instruction override — handles "ignore all previous instructions" etc.
     (r"ignore\s+(?:\w+\s+){0,3}instructions?", "ignore_instructions"),
+    (r"ignore\s+(?:\w+\s+){0,3}(restrictions?|rules?|guidelines?|constraints?|limits?|safety)", "ignore_instructions"),  # noqa: E501
     (r"(disregard|forget)\s+(your|the|all)\s+(instructions?|prompt|context|rules?)", "disregard_rules"),  # noqa: E501
-    # Role hijacking — article is optional ("you are now DAN" has no article)
+    # Role hijacking — catches "you are now X", "you are no longer X", "your new role"
     (r"\byou\s+are\s+now\s+(?:(?:a|an|the)\s+)?\w+", "role_hijack"),
+    (r"\byou\s+are\s+no\s+longer\b", "role_hijack"),
+    (r"\byour\s+new\s+role\b", "role_hijack"),
     (r"act\s+as\s+(if\s+you\s+are\s+)?(a|an|the)?\s*(different|new|unrestricted|uncensored|evil)", "act_as"),  # noqa: E501
     (r"\b(jailbreak|do\s+anything\s+now)\b", "jailbreak"),
+    # Safety bypass
+    (r"\bbypass\b.{0,30}\b(approval|human|safety|authorization|auth|hitl)\b", "bypass_safety"),
+    (r"\bsystem\s+override\b", "bypass_safety"),
+    # Instruction override via always/never commands
+    (r"\balways\s+(blame|lie|say|tell|report|claim)\b", "instruction_override"),
+    (r"\bnever\s+(report|mention|acknowledge|tell)\b.{0,30}\b(uncertainty|doubt|confidence|error|limit)", "instruction_override"),  # noqa: E501
     # System prompt leakage
     (r"reveal\s+(your|the)\s+(system\s+)?prompt", "prompt_leak"),
     (r"print\s+(your|the)\s+(system\s+|initial\s+)?instructions?", "prompt_leak"),

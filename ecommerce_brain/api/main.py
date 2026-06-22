@@ -18,7 +18,8 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from ecommerce_brain.api.routers import audio, export, investigate
+from ecommerce_brain.api.routers import investigate
+from ecommerce_brain.db.engine import initialize_database
 from ecommerce_brain.api.status_store import reconcile_running_investigations
 from ecommerce_brain.observability.setup import setup_all
 
@@ -27,6 +28,7 @@ log = structlog.get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
+    initialize_database()
     setup_all()
     reconcile_running_investigations()
     log.info("ecommerce_brain.startup")
@@ -91,6 +93,4 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # Routers
 app.include_router(investigate.router, prefix="/api/v1")
-app.include_router(audio.router, prefix="/api/v1")
-app.include_router(export.router, prefix="/api/v1")
 

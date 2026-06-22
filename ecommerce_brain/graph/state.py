@@ -71,8 +71,9 @@ class GraphState(TypedDict):
     # ── Execution ─────────────────────────────────────────────────────────────
     execution_results: list[ExecutionResult]
 
-    # ── Timing / telemetry (not enforced as a hard limit) ────────────────────
+    # ── Timing / telemetry ──────────────────────────────────────────────────
     investigation_start_ms: int
+    total_tokens: int
 
     # ── Error / security ──────────────────────────────────────────────────────
     # Reducer combines concurrent error writes from parallel domain agents.

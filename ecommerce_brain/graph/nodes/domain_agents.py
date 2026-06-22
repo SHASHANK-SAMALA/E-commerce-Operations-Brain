@@ -73,10 +73,14 @@ def _get_domain_memory_hint(domain: str, memory: MemoryContext | None) -> str:
             part += f"\n  Previously effective: {'; '.join(str(s) for s in steps[:3])}"
         hints.append(part)
 
-    if not hints and memory.recommended_actions_from_history:
+    # Prefer domain-scoped mem0 memories over the global cross-domain fallback.
+    # domain_memories is populated per-domain in memory_recall_node.
+    domain_specific_mems = (getattr(memory, "domain_memories", {}) or {}).get(domain, [])
+    fallback_mems = domain_specific_mems or memory.recommended_actions_from_history
+    if not hints and fallback_mems:
         hints.append(
             "Historical recommendations: "
-            + "; ".join(memory.recommended_actions_from_history[:3])
+            + "; ".join(fallback_mems[:3])
         )
 
     if not hints:
@@ -97,7 +101,7 @@ async def _call_domain_agent(domain: str, state: GraphState, schema_class) -> di
         span.set_attribute("intent", state.get("intent", ""))
         span.set_attribute("domain", domain)
 
-        # â”€â”€ Prometheus per-agent counter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Prometheus per-agent counter 
         try:
             from ecommerce_brain.observability.setup import agent_call_counter
             agent_call_counter.add(1, {"domain": domain})
@@ -107,7 +111,7 @@ async def _call_domain_agent(domain: str, state: GraphState, schema_class) -> di
         spec = get_agent(f"{domain}_agent")
         llm = agent_llm(temperature=spec.temperature)
 
-        # â”€â”€ Step 1: fetch MCP tool definitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # â”€â”€ Step 1: fetch MCP tool definitions 
         try:
             tools = await get_mcp_tools(domain)
         except Exception as exc:
@@ -122,11 +126,11 @@ async def _call_domain_agent(domain: str, state: GraphState, schema_class) -> di
 
         span.set_attribute("tools_available", [t.name for t in tools])
 
-        # â”€â”€ Step 2: build domain-scoped memory hint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Step 2: build domain-scoped memory hint 
         memory = state.get("memory_context")
         memory_hint = _get_domain_memory_hint(domain, memory)
 
-        # â”€â”€ Step 3: build the ReAct agent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Step 3: build the ReAct agent 
         agent = create_react_agent(
             llm,
             tools=tools,
@@ -134,7 +138,7 @@ async def _call_domain_agent(domain: str, state: GraphState, schema_class) -> di
             max_iterations=MAX_ITERATIONS,
         )
 
-        # â”€â”€ Step 4: run the ReAct loop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        #  Step 4: run the ReAct loop 
         query_message = HumanMessage(
             content=f"Query: {state['query']}\n\nAnalyse using the available tools."
         )

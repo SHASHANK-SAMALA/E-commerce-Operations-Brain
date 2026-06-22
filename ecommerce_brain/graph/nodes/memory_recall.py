@@ -31,10 +31,12 @@ async def memory_recall_node(state: GraphState) -> dict:
         try:
             # Run synchronous SQLAlchemy calls in a thread pool so the async
             # LangGraph event loop is never blocked during DB I/O.
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             context = await loop.run_in_executor(None, kedb.recall, query, 3)
 
             # Layer 3: Mem0 semantic recall for natural language memory
+            # Global recall (session-scoped) — feeds recommended_actions_from_history
+            # as a cross-domain fallback only when no domain-specific memories exist.
             mem0_results = recall_similar(query, session_id=state.get("session_id"), limit=3)
             if mem0_results:
                 seen_text: set[str] = {
@@ -65,6 +67,18 @@ async def memory_recall_node(state: GraphState) -> dict:
                         seen_text.add(normalized)
                 if not context.historical_pattern_found and mem0_results:
                     context.historical_pattern_found = True
+
+            # Layer 4: Domain-scoped mem0 recall — one call per required domain.
+            # Stored separately so each agent only sees memories from its own domain,
+            # preventing inventory patterns from leaking into the sales agent, etc.
+            # Uses the domain-scoped user_id ("ecommerce-{domain}") written by memory_writer.
+            domains_required = state.get("domains_required") or []
+            for domain in domains_required:
+                domain_mems = recall_similar(query, domain=domain, limit=3)
+                context.domain_memories[domain] = [
+                    m.get("memory", "") for m in domain_mems
+                    if isinstance(m.get("memory"), str) and m.get("memory", "").strip()
+                ]
 
             span.set_attribute("kedb_hits", len(context.kedb_entries))
             span.set_attribute("mem0_hits", len(mem0_results))

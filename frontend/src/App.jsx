@@ -114,26 +114,6 @@ export default function App() {
     }
   }, [activeId, pollStatus])
 
-  const handleAudioTranscribe = useCallback(async (audioBlob) => {
-    const form = new FormData()
-    form.append('file', audioBlob, 'recording.webm')
-    try {
-      const res = await fetch(`${BASE}/audio/transcribe`, {
-        method: 'POST',
-        headers: { 'X-API-Key': API_KEY },
-        body: form,
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        if (activeId) addMsg(activeId, 'error', data.detail || 'Audio transcription failed.')
-        return
-      }
-      if (data.text) handleQuery(data.text)
-    } catch {
-      if (activeId) addMsg(activeId, 'error', 'Audio transcription failed.')
-    }
-  }, [handleQuery, activeId])
-
   const handleHITLDecision = useCallback(async (decision) => {
     const conv = conversations.find(c => c.id === activeId)
     if (!conv?.hitlData) return
@@ -158,15 +138,6 @@ export default function App() {
     }
   }, [activeId, conversations, pollStatus])
 
-  const handleExport = useCallback(async () => {
-    const res = await fetch(`${BASE}/export/incidents`, { headers: headers() })
-    const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = 'incidents.csv'; a.click()
-    URL.revokeObjectURL(url)
-  }, [])
-
   const active = conversations.find(c => c.id === activeId)
 
   return (
@@ -186,8 +157,6 @@ export default function App() {
           loading={active?.loading || false}
           hitlData={active?.hitlData || null}
           onQuery={handleQuery}
-          onAudio={handleAudioTranscribe}
-          onExport={handleExport}
           onHITLDecide={handleHITLDecision}
         />
       </div>

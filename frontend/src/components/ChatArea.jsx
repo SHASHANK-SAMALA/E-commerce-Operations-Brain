@@ -593,9 +593,8 @@ function TypedText({ content, animate }) {
   )
 }
 
-export default function ChatArea({ messages, loading, hitlData, onQuery, onAudio, onExport, onHITLDecide }) {
+export default function ChatArea({ messages, loading, hitlData, onQuery, onHITLDecide }) {
   const [text, setText] = useState('')
-  const [recording, setRecording] = useState(false)
   const bottomRef = useRef(null)
   // Track which message keys have already been animated so switching convs doesn't re-animate
   const animatedRef = useRef(new Set())
@@ -611,24 +610,6 @@ export default function ChatArea({ messages, loading, hitlData, onQuery, onAudio
     if (!q || loading) return
     setText('')
     onQuery(q)
-  }
-
-  const toggleRecord = async () => {
-    if (recording) { mediaRef.current?.stop(); setRecording(false); return }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const rec = new MediaRecorder(stream)
-      chunksRef.current = []
-      rec.ondataavailable = e => chunksRef.current.push(e.data)
-      rec.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-        stream.getTracks().forEach(t => t.stop())
-        onAudio(blob)
-      }
-      rec.start()
-      mediaRef.current = rec
-      setRecording(true)
-    } catch { alert('Microphone access denied') }
   }
 
   const showWelcome = messages.length === 0 && !loading && !hitlData
@@ -691,18 +672,6 @@ export default function ChatArea({ messages, loading, hitlData, onQuery, onAudio
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
           />
           <div style={s.toolbar}>
-            <div style={{ display: 'flex', gap: '4px' }}>
-              <button
-                style={s.iconBtn(recording)}
-                onClick={toggleRecord}
-                title={recording ? 'Stop recording' : 'Voice input'}
-              >
-                {recording ? '⏹ Stop' : '🎤 Voice'}
-              </button>
-              <button style={s.iconBtn(false)} onClick={onExport} title="Export incidents CSV">
-                ⬇ Export
-              </button>
-            </div>
             <button style={s.sendBtn(loading || !text.trim())} onClick={send} disabled={loading || !text.trim()}>
               {loading ? 'Investigating...' : 'Send'}
             </button>

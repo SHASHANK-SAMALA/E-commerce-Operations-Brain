@@ -83,6 +83,10 @@ _ECOMMERCE_ALLOW_KEYWORDS: frozenset[str] = frozenset({
     "checkout", "cart", "listing", "marketplace", "seller", "buyer",
     # Business reporting — summary/health/report queries
     "report", "summary", "health", "business", "incident", "overview",
+    # Reflective / analytical queries about this system's own investigation
+    "analysis", "assumptions", "assumption", "evidence", "confidence",
+    "previous", "review", "findings", "conclusion", "investigate",
+    "investigation", "root", "cause", "missing", "gaps",
 })
 
 _REJECTION_RESPONSE = (

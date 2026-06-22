@@ -33,7 +33,10 @@ def _compute_evidence_score(domains_required: list[str], reports: dict) -> float
 
     sales = reports.get("sales")
     if sales and hasattr(sales, "revenue_delta_pct"):
-        score += min(abs(sales.revenue_delta_pct) / 100, W_SALES_DROP)
+        # Only a negative delta is evidence of a problem worth investigating.
+        # Positive revenue growth must not inflate diagnostic confidence.
+        if sales.revenue_delta_pct < 0:
+            score += min(abs(sales.revenue_delta_pct) / 100, W_SALES_DROP)
 
     inventory = reports.get("inventory")
     if inventory and hasattr(inventory, "stockouts"):
