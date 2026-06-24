@@ -123,7 +123,7 @@ async def synthesis_node(state: GraphState) -> dict:
                 "\n=== END HISTORICAL REFERENCE ==="
             )
 
-        # ── KADB: surface historical action success rates ─────────────────────
+        # KADB: surface historical action success rates
         kadb_context = ""
         try:
             action_types = ["restock_product", "resume_campaign", "increase_campaign_budget", "apply_discount_promotion"]
@@ -187,9 +187,7 @@ async def synthesis_node(state: GraphState) -> dict:
                 )
                 report.proposed_actions = report.proposed_actions[:_MAX_ACTIONS]
 
-            # ── Hard post-processing: enforce data integrity in code, not just in the prompt ──
-            # The LLM regularly violates data constraints when KEDB history is present.
-            # These filters are the authoritative guard — LLM output is advisory only.
+            # Hard post-processing: enforce data integrity in code, not just in the prompt.
             inventory_report = state.get("inventory_report")
             marketing_report = state.get("marketing_report")
             sales_report_obj = state.get("sales_report")

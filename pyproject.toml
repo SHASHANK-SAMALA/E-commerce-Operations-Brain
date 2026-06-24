@@ -8,64 +8,82 @@ version = "0.1.0"
 description = "AI E-Commerce Operations Brain — Multi-Agent Agentic AI System"
 requires-python = ">=3.11"
 dependencies = [
-    # ── LangChain / LangGraph ecosystem ──────────────────────────────────────
-    # langgraph 1.2.2 requires langchain-core>=1.4.0 (1.x release line)
-    # langchain / langchain-openai / langsmith moved to 1.x in sync.
+    # LangChain / LangGraph
+    # langgraph is pinned exactly; the rest use >= because langchain, langchain-core,
+    # langchain-openai, and langchain-mcp-adapters coordinate their releases and
+    # cannot be pinned to arbitrary cross-version combinations.
     "langgraph==1.2.2",
-    "langgraph-checkpoint-postgres>=3.1.0,<4.0.0",
+    "langgraph-checkpoint-postgres>=3.1.0",
     "langchain>=0.3.0",
     "langchain-core>=1.4.0",
     "langchain-openai>=0.3.0",
-    "langchain-mcp-adapters>=0.3.0,<1.0.0",
-    # ── Pydantic ──────────────────────────────────────────────────────────────
-    "pydantic>=2.13.0,<3.0.0",
-    "pydantic-settings>=2.14.0,<3.0.0",
-    # ── FastAPI ───────────────────────────────────────────────────────────────
-    "fastapi>=0.119.0,<0.130.0",
-    "uvicorn[standard]>=0.30.0",
-    "slowapi>=0.1.9",
-    "python-multipart>=0.0.9",
-    # ── Database ──────────────────────────────────────────────────────────────
-    "psycopg[binary]>=3.1.0,<4.0.0",
-    "psycopg-pool>=3.2.0,<4.0.0",
-    "pgvector>=0.3.0",
-    "sqlalchemy>=2.0.30",
-    # ── Cache ─────────────────────────────────────────────────────────────────
-    "redis>=5.0.0",
-    # ── MCP ───────────────────────────────────────────────────────────────────
-    "mcp>=1.0.0",
-    # ── Observability ─────────────────────────────────────────────────────────
-    "opentelemetry-sdk>=1.24.0",
-    "opentelemetry-instrumentation-fastapi>=0.45b0",
-    "opentelemetry-exporter-prometheus>=0.45b0",
-    "opentelemetry-exporter-otlp-proto-grpc>=1.24.0",
-    "prometheus-client>=0.20.0",
-    "structlog>=24.1.0",
-    # ── Evaluation ────────────────────────────────────────────────────────────
-    "deepeval>=4.0.0,<5.0.0",
-    # ── Memory (Mem0 semantic layer) ─────────────────────────────────────────────
-    "mem0ai>=2.0.0,<3.0.0",
-    # ── Audio (Azure Whisper via openai client) ────────────────────────────────
-    "openai>=1.35.0,<2.0.0",
-    # ── Utilities ─────────────────────────────────────────────────────────────
-    "httpx>=0.27.0",
-    "pyyaml>=6.0.1",
-    "tenacity>=8.3.0",
-    "aiofiles>=23.2.1",
-    "python-dotenv>=1.0.0",
-    "faker>=25.0.0",
+    "langchain-mcp-adapters>=0.3.0",
+
+    # Pydantic
+    "pydantic==2.13.0",
+    "pydantic-settings==2.14.0",
+
+    # FastAPI
+    "fastapi==0.119.0",
+    "uvicorn[standard]==0.30.0",
+    "slowapi==0.1.9",
+    "python-multipart==0.0.9",
+
+    # Database
+    "psycopg[binary]>=3.2.0",
+    "psycopg-pool>=3.2.0",
+    "pgvector==0.3.0",
+    "sqlalchemy>=2.0.31",
+
+    # Cache
+    "redis==5.0.0",
+
+    # MCP
+    # >=1.10.0: ElicitationFnT (required by langchain-mcp-adapters 0.3.0) was added in 1.10.0
+    # <2.0.0: mcp 2.x is an alpha rewrite with breaking changes
+    "mcp>=1.10.0,<2.0.0",
+
+    # Observability
+    # OTel packages are released together and must use >= because:
+    # - mem0ai 2.0.0 requires protobuf>=5.29.6
+    # - opentelemetry-proto 1.24.0 requires protobuf<5.0 (incompatible)
+    # - protobuf 5.x support was added in sdk 1.25.0 / contrib 0.46b0
+
+
+    "opentelemetry-sdk>=1.25.0",
+    "opentelemetry-instrumentation-fastapi>=0.46b0",
+    "opentelemetry-exporter-prometheus>=0.46b0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.25.0",
+    "prometheus-client==0.20.0",
+    "structlog==24.1.0",
+
+    # Evaluation
+    "deepeval==4.0.0",
+
+    # Memory
+    "mem0ai==2.0.0",
+
+    # Audio
+    "openai>=1.90.0",
+
+    # Utilities
+    "httpx==0.27.0",
+    "pyyaml==6.0.1",
+    "tenacity==8.3.0",
+    "aiofiles==23.2.1",
+    "python-dotenv==1.1.1",
+    "faker==25.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.5.0",
-    "pytest>=8.2.0",
-    "pytest-asyncio>=0.23.0",
-    "pytest-cov>=5.0.0",
-    "bandit[toml]>=1.7.9",
-    "detect-secrets>=1.5.0",
-    "deepeval>=4.0.0,<5.0.0",
-    "pytest-timeout>=0.5.0",
+    "ruff==0.5.0",
+    "pytest==8.2.0",
+    "pytest-asyncio==0.23.0",
+    "pytest-cov==5.0.0",
+    "detect-secrets==1.5.0",
+    "deepeval==4.0.0",
+    "pytest-timeout==0.5.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -91,5 +109,4 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
 
-[tool.bandit]
-skips = ["B101"]
+

@@ -60,7 +60,7 @@ def create_react_agent(
     tool_map: dict[str, BaseTool] = {t.name: t for t in tools}
     llm_with_tools = llm.bind_tools(tools)
 
-    # ── Node: call the LLM ────────────────────────────────────────────────────
+
     async def agent_node(state: MessagesState) -> dict:
         messages = list(state["messages"])
 
@@ -75,7 +75,7 @@ def create_react_agent(
         )
         return {"messages": [response]}
 
-    # ── Node: execute tools (in parallel within one round) ───────────────────
+
     async def _run_one(tc: dict) -> ToolMessage:
         name: str = tc["name"]
         args: dict = tc.get("args", {})
@@ -119,7 +119,7 @@ def create_react_agent(
         tool_messages = await asyncio.gather(*(_run_one(tc) for tc in tool_calls))
         return {"messages": list(tool_messages)}
 
-    # ── Routing: continue if LLM wants more tools, else stop ─────────────────
+
     def _route(state: MessagesState) -> str:
         last = state["messages"][-1]
         tool_calls = getattr(last, "tool_calls", None) or []
@@ -135,7 +135,7 @@ def create_react_agent(
             return "tools"
         return END
 
-    # ── Assemble the graph ────────────────────────────────────────────────────
+
     graph = StateGraph(MessagesState)
     graph.add_node("agent", agent_node)
     graph.add_node("tools", tools_node)

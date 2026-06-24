@@ -36,49 +36,48 @@ class ExecutionResult(TypedDict):
 
 
 class GraphState(TypedDict):
-    # ── Request context ───────────────────────────────────────────────────────
+    # Request
     query: str
     query_id: str
     session_id: str | None
 
-    # ── Routing ───────────────────────────────────────────────────────────────
+    # Routing
     routing_decision: RoutingDecision | None
     intent: str | None
     domains_required: list[str]
     routing_confidence: float
 
-    # ── Memory pre-context ────────────────────────────────────────────────────
+    # Memory
     memory_context: MemoryContext | None
 
-    # ── Domain reports (fan-in from parallel agents) ──────────────────────────
+    # Domain reports (fan-in from parallel agents)
     sales_report: SalesReport | None
     inventory_report: InventoryReport | None
     marketing_report: MarketingReport | None
     support_report: SupportReport | None
 
-    # ── Reflection ────────────────────────────────────────────────────────────
+    # Reflection
     reflection_result: ReflectionResult | None
     loop_count: int
 
-    # ── Synthesis ─────────────────────────────────────────────────────────────
+    # Synthesis
     root_cause_report: RootCauseReport | None
     proposed_actions: list[ProposedAction]
 
-    # ── HITL ──────────────────────────────────────────────────────────────────
-    hitl_status: str  # "pending" | "pending_approval" | "approved" | "rejected"
+    # HITL — "pending" | "pending_approval" | "approved" | "rejected"
+    hitl_status: str
     approved_actions: list[ProposedAction]
 
-    # ── Execution ─────────────────────────────────────────────────────────────
+    # Execution
     execution_results: list[ExecutionResult]
 
-    # ── Timing / telemetry ──────────────────────────────────────────────────
+    # Telemetry
     investigation_start_ms: int
     total_tokens: int
 
-    # ── Error / security ──────────────────────────────────────────────────────
-    # Reducer combines concurrent error writes from parallel domain agents.
+    # Error / security — reducer merges concurrent writes from parallel agents
     error: Annotated[str | None, lambda a, b: "\n".join(filter(None, [a, b])) or None]
     blocked_reason: str | None
 
-    # ── Audit (append-only via reducer) ───────────────────────────────────────
+    # Audit log (append-only)
     audit_log: Annotated[list[dict], operator.add]

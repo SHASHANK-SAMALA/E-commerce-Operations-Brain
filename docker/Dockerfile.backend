@@ -14,6 +14,19 @@ COPY ecommerce_brain/ ./ecommerce_brain/
 # Install as a regular package (not editable) so the module is in site-packages
 RUN pip install --no-cache-dir .
 
+# langchain-mcp-adapters 0.3.0 imports 'streamable_http_client' but all mcp >= 1.9.x
+# only exports 'streamablehttp_client' (no underscore separator between words).
+# Patch the import to use the correct name as an alias so the rest of sessions.py
+# continues to work unchanged.
+
+
+RUN SESSIONS=/usr/local/lib/python3.11/site-packages/langchain_mcp_adapters/sessions.py \
+    && sed -i \
+       's/from mcp\.client\.streamable_http import create_mcp_http_client, streamable_http_client/from mcp.client.streamable_http import create_mcp_http_client, streamablehttp_client as streamable_http_client/' \
+       "$SESSIONS" \
+    && find /usr/local/lib/python3.11/site-packages/langchain_mcp_adapters/__pycache__ \
+       -name "sessions*.pyc" -delete 2>/dev/null || true
+
 # Copy remaining project files (scripts, run_uvicorn, etc.)
 COPY run_uvicorn.py .
 COPY start_mcp_servers.py .

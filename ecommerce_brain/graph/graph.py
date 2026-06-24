@@ -18,9 +18,7 @@ import warnings
 from contextlib import asynccontextmanager
 from typing import Any
 
-# Suppress LangGraph msgpack deserialization warnings for our own Pydantic types.
-# These types are safe — they are defined in this codebase.
-# The env var future-proofs against LangGraph versions that will block unknown types.
+# Suppress LangGraph msgpack warnings for our own Pydantic types — must be set before langgraph import.
 os.environ.setdefault(
     "LANGGRAPH_ALLOWED_MSGPACK_MODULES",
     "ecommerce_brain.schemas.outputs,ecommerce_brain.schemas.routing,ecommerce_brain.schemas.memory",
@@ -65,7 +63,7 @@ _DOMAIN_NODE_MAP: dict[str, str] = {
 }
 
 
-# ── Edge conditions ────────────────────────────────────────────────────────────
+# Edge conditions
 
 def _guardrail_edge(state: GraphState) -> str:
     if state.get("blocked_reason") or state.get("error"):
@@ -104,7 +102,7 @@ def _hitl_edge(state: GraphState) -> str:
     return "execute"
 
 
-# ── Graph builder ──────────────────────────────────────────────────────────────
+# Graph builder
 
 def build_graph(checkpointer=None) -> Any:
     builder = StateGraph(GraphState)

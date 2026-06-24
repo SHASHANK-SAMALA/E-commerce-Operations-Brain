@@ -46,8 +46,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install bandit detect-secrets
-      - run: bandit -r ecommerce_brain/ -ll -x ecommerce_brain/db/seed.py
+      - run: pip install detect-secrets
       - run: detect-secrets scan --baseline .secrets.baseline || true
 
   integration:

@@ -16,6 +16,16 @@ from ecommerce_brain.schemas.routing import RoutingDecision
 log = structlog.get_logger(__name__)
 _tracer = trace.get_tracer("ecommerce_brain.coordinator")
 
+_INTENT_ALIASES: dict[str, str] = {
+    "monitor": "diagnose",
+    "analyze": "diagnose",
+    "analyse": "diagnose",
+    "check": "diagnose",
+    "track": "diagnose",
+    "watch": "diagnose",
+    "investigate": "diagnose",
+}
+
 _ROUTING_QUERY_TEMPLATE = (
     "Query: {query}\n\n"
     "Return ONLY valid JSON matching this schema:\n"
@@ -54,15 +64,6 @@ def coordinator_node(state: GraphState) -> dict:
                 data = json.loads(raw)
                 data["routing_source"] = "llm_fallback"
                 # Normalise non-standard intent values the LLM sometimes returns.
-                _INTENT_ALIASES: dict[str, str] = {
-                    "monitor": "diagnose",
-                    "analyze": "diagnose",
-                    "analyse": "diagnose",
-                    "check": "diagnose",
-                    "track": "diagnose",
-                    "watch": "diagnose",
-                    "investigate": "diagnose",
-                }
                 if "intent" in data:
                     data["intent"] = _INTENT_ALIASES.get(data["intent"], data["intent"])
                 decision = RoutingDecision.model_validate(data)
