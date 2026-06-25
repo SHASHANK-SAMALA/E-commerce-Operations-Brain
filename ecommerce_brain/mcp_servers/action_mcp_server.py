@@ -1,3 +1,5 @@
+"""Action MCP server — exposes action execution tools over SSE transport."""
+
 import structlog
 from mcp.server.fastmcp import FastMCP
 

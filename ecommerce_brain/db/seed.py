@@ -10,6 +10,7 @@ import argparse
 import random
 from datetime import date, timedelta
 
+import structlog
 from faker import Faker
 from sqlalchemy import select, text
 
@@ -22,6 +23,8 @@ from ecommerce_brain.db.models import (
     MockSalesMetric,
     MockSupportTicket,
 )
+
+log = structlog.get_logger(__name__)
 
 fake = Faker()
 Faker.seed(42)
@@ -276,13 +279,13 @@ KADB_ENTRIES = [
 
 
 def create_tables() -> None:
-    print("Creating tables...")
+    log.info("seed.creating_tables")
     Base.metadata.create_all(engine)
-    print("Tables created")
+    log.info("seed.tables_created")
 
 
 def seed_data() -> None:
-    print("Seeding mock data...")
+    log.info("seed.seeding_data")
     sales_rows = _generate_sales_metrics()
     ticket_rows = _generate_support_tickets()
     with get_session() as session:
@@ -302,14 +305,19 @@ def seed_data() -> None:
         for e in KADB_ENTRIES:
             session.add(KADBEntry(**e))
 
-    print(f"{len(PRODUCTS)} products, {len(CAMPAIGNS)} campaigns seeded")
-    print(f"{len(sales_rows)} sales metrics rows seeded")
-    print(f"{len(ticket_rows)} support tickets seeded")
-    print(f"{len(KEDB_ENTRIES)} KEDB entries, {len(KADB_ENTRIES)} KADB entries seeded")
+    log.info(
+        "seed.data_seeded",
+        products=len(PRODUCTS),
+        campaigns=len(CAMPAIGNS),
+        sales_rows=len(sales_rows),
+        ticket_rows=len(ticket_rows),
+        kedb_entries=len(KEDB_ENTRIES),
+        kadb_entries=len(KADB_ENTRIES),
+    )
 
 
 def seed_embeddings() -> None:
-    print("Generating KEDB embeddings...")
+    log.info("seed.generating_embeddings")
     from ecommerce_brain.llm import embedding_client
     client = embedding_client()
     with get_session() as session:
@@ -317,7 +325,7 @@ def seed_embeddings() -> None:
         for entry in entries:
             vec = client.embed_query(entry.symptom_summary)
             entry.embedding = vec
-    print(f"Embeddings generated for {len(entries)} KEDB entries")
+    log.info("seed.embeddings_generated", count=len(entries))
 
 
 if __name__ == "__main__":
@@ -329,4 +337,4 @@ if __name__ == "__main__":
     seed_data()
     if args.embeddings:
         seed_embeddings()
-    print("Seed complete")
+    log.info("seed.complete")

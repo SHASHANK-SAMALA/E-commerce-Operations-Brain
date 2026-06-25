@@ -1,3 +1,5 @@
+"""Inventory MCP server — exposes inventory domain tools over SSE transport."""
+
 import structlog
 from mcp.server.fastmcp import FastMCP
 

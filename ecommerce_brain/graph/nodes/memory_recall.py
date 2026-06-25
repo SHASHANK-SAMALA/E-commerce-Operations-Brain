@@ -14,6 +14,7 @@ from opentelemetry import trace
 from ecommerce_brain.graph.state import GraphState
 from ecommerce_brain.memory import kedb
 from ecommerce_brain.memory.mem0_integration import recall_similar
+from ecommerce_brain.schemas.memory import MemoryContext
 
 log = structlog.get_logger(__name__)
 _tracer = trace.get_tracer("ecommerce_brain.memory_recall")
@@ -24,54 +25,72 @@ def _normalize_text(value: str) -> str:
     return " ".join(value.strip().lower().split())
 
 
+def _deduplicate_mem0_results(
+    mem0_results: list[dict],
+    context: MemoryContext,
+) -> list[str]:
+    """Filter Mem0 results to exclude text already present in KEDB context.
+
+    Builds a set of normalized strings from all KEDB entries and existing
+    recommended actions, then returns only the Mem0 memory strings that are
+    not already represented.
+
+    Args:
+        mem0_results: Raw Mem0 search results (list of dicts with 'memory' key).
+        context: Existing MemoryContext populated from KEDB search.
+
+    Returns:
+        List of unique memory strings not already in the context.
+    """
+    seen_text: set[str] = {
+        _normalize_text(text)
+        for text in context.recommended_actions_from_history
+        if isinstance(text, str) and text.strip()
+    }
+    for entry in context.kedb_entries:
+        for field in ("symptom_summary", "root_cause"):
+            val = entry.get(field, "")
+            if isinstance(val, str) and val.strip():
+                seen_text.add(_normalize_text(val))
+        for step in entry.get("resolution_steps", []):
+            if isinstance(step, str) and step.strip():
+                seen_text.add(_normalize_text(step))
+
+    unique: list[str] = []
+    for mem in mem0_results:
+        memory_text = mem.get("memory", "")
+        normalized = _normalize_text(memory_text) if isinstance(memory_text, str) else ""
+        if normalized and normalized not in seen_text:
+            unique.append(memory_text)
+            seen_text.add(normalized)
+    return unique
+
+
 async def memory_recall_node(state: GraphState) -> dict:
+    """Recall KEDB patterns and Mem0 semantic memories for the query.
+
+    Args:
+        state: Current graph state with query and session/domain context.
+
+    Returns:
+        Dict with memory_context (MemoryContext | None) and audit_log entry.
+    """
     with _tracer.start_as_current_span("memory_recall_node") as span:
         query = state["query"]
         span.set_attribute("query_id", state.get("query_id", ""))
         try:
-            # Run synchronous SQLAlchemy calls in a thread pool so the async
-            # LangGraph event loop is never blocked during DB I/O.
             loop = asyncio.get_running_loop()
             context = await loop.run_in_executor(None, kedb.recall, query, 3)
 
-            # Layer 3: Mem0 semantic recall for natural language memory
-            # Global recall (session-scoped) — feeds recommended_actions_from_history
-            # as a cross-domain fallback only when no domain-specific memories exist.
+            # Global Mem0 recall — feeds cross-domain recommended_actions_from_history.
             mem0_results = recall_similar(query, session_id=state.get("session_id"), limit=3)
             if mem0_results:
-                seen_text: set[str] = {
-                    _normalize_text(text)
-                    for text in context.recommended_actions_from_history
-                    if isinstance(text, str) and text.strip()
-                }
-                for entry in context.kedb_entries:
-                    symptom = entry.get("symptom_summary", "")
-                    if isinstance(symptom, str) and symptom.strip():
-                        seen_text.add(_normalize_text(symptom))
-
-                    root_cause = entry.get("root_cause", "")
-                    if isinstance(root_cause, str) and root_cause.strip():
-                        seen_text.add(_normalize_text(root_cause))
-
-                    for step in entry.get("resolution_steps", []):
-                        if isinstance(step, str) and step.strip():
-                            seen_text.add(_normalize_text(step))
-
-                for mem in mem0_results:
-                    memory_text = mem.get("memory", "")
-                    normalized = (
-                        _normalize_text(memory_text) if isinstance(memory_text, str) else ""
-                    )
-                    if normalized and normalized not in seen_text:
-                        context.recommended_actions_from_history.append(memory_text)
-                        seen_text.add(normalized)
-                if not context.historical_pattern_found and mem0_results:
+                new_memories = _deduplicate_mem0_results(mem0_results, context)
+                context.recommended_actions_from_history.extend(new_memories)
+                if not context.historical_pattern_found:
                     context.historical_pattern_found = True
 
-            # Layer 4: Domain-scoped mem0 recall — one call per required domain.
-            # Stored separately so each agent only sees memories from its own domain,
-            # preventing inventory patterns from leaking into the sales agent, etc.
-            # Uses the domain-scoped user_id ("ecommerce-{domain}") written by memory_writer.
+            # Domain-scoped Mem0 recall — each agent only sees its own domain memories.
             domains_required = state.get("domains_required") or []
             for domain in domains_required:
                 domain_mems = recall_similar(query, domain=domain, limit=3)

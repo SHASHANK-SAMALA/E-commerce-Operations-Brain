@@ -18,7 +18,6 @@ own LLM instance and its own MCP tool set.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 from typing import Any
 
@@ -27,6 +26,7 @@ from langchain_core.messages import HumanMessage
 from opentelemetry import trace
 
 from ecommerce_brain.agents.react_agent import MAX_ITERATIONS, create_react_agent
+from ecommerce_brain.utils.time import now_ms
 from ecommerce_brain.agents.registry import get_agent
 from ecommerce_brain.graph.state import GraphState
 from ecommerce_brain.llm import agent_llm
@@ -107,7 +107,7 @@ async def _call_domain_agent(domain: str, state: GraphState, schema_class: type)
         Dict with "success": True and "report" on success, or
         "success": False and "error" on failure.
     """
-    agent_start_ms = int(time.time() * 1000)
+    agent_start_ms = now_ms()
     with _tracer.start_as_current_span(f"{domain}_agent") as span:
         span.set_attribute("query_id", state.get("query_id", ""))
         span.set_attribute("intent", state.get("intent", ""))
@@ -145,7 +145,7 @@ async def _call_domain_agent(domain: str, state: GraphState, schema_class: type)
             content=f"Query: {state['query']}\n\nAnalyse using the available tools."
         )
 
-        llm_start_ms = int(time.time() * 1000)
+        llm_start_ms = now_ms()
         try:
             agent_output = await agent.ainvoke({"messages": [query_message]})
         except Exception as exc:
@@ -154,11 +154,11 @@ async def _call_domain_agent(domain: str, state: GraphState, schema_class: type)
             span.record_exception(exc)
             return {"success": False, "error": str(exc)}
         finally:
-            llm_elapsed_ms = int(time.time() * 1000) - llm_start_ms
+            llm_elapsed_ms = now_ms() - llm_start_ms
             safe_record(llm_latency_histogram, llm_elapsed_ms, {"domain": domain})
             safe_record(
                 agent_latency_histogram,
-                int(time.time() * 1000) - agent_start_ms,
+                now_ms() - agent_start_ms,
                 {"domain": domain},
             )
 

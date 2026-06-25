@@ -13,6 +13,13 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    """Application settings loaded from environment variables and .env file.
+
+    All secrets use SecretStr so they are never accidentally logged or serialised.
+    Call ``get_settings()`` to obtain the shared cached instance; do NOT import
+    the module-level ``settings`` name (it has been removed to keep settings
+    evaluation lazy and testable).
+    """
     # Azure OpenAI
     azure_openai_endpoint: str = ""
     azure_openai_api_key: SecretStr = SecretStr("")
@@ -77,4 +84,3 @@ def get_settings() -> Settings:
     return Settings()
 
 
-settings = get_settings()

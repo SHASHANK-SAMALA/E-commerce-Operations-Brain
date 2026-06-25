@@ -1,3 +1,5 @@
+"""Sales MCP server — exposes sales domain tools over SSE transport."""
+
 import structlog
 from mcp.server.fastmcp import FastMCP
 

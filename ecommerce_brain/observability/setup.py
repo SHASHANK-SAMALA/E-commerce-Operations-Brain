@@ -13,7 +13,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from prometheus_client import start_http_server
 
-from ecommerce_brain.config.settings import settings
+from ecommerce_brain.config.settings import get_settings
 
 # ── Public tracer / meter used by graph nodes ─────────────────────────────────
 tracer = trace.get_tracer("ecommerce_brain")
@@ -78,11 +78,12 @@ def setup_logging() -> None:
 
 def setup_otel() -> None:
     """Configure OpenTelemetry tracing + Prometheus metrics."""
-    if not settings.otel_enabled:
+    s = get_settings()
+    if not s.otel_enabled:
         return
 
     # ── Tracing — attach a span exporter so spans are NOT silently dropped ────
-    resource = Resource(attributes={"service.name": settings.otel_service_name})
+    resource = Resource(attributes={"service.name": s.otel_service_name})
     tracer_provider = TracerProvider(resource=resource)
 
     # Try OTLP gRPC first (requires opentelemetry-exporter-otlp-proto-grpc).
@@ -94,7 +95,7 @@ def setup_otel() -> None:
             "opentelemetry.exporter.otlp.proto.grpc.trace_exporter"
         )
         span_exporter = _otlp.OTLPSpanExporter(
-            endpoint=settings.otel_endpoint, insecure=True
+            endpoint=s.otel_endpoint, insecure=True
         )
     except ImportError:
         from opentelemetry.sdk.trace.export import ConsoleSpanExporter
@@ -107,7 +108,7 @@ def setup_otel() -> None:
     reader = PrometheusMetricReader()
     metrics_provider = MeterProvider(metric_readers=[reader])
     metrics.set_meter_provider(metrics_provider)
-    start_http_server(settings.prometheus_port)
+    start_http_server(s.prometheus_port)
 
 
 def setup_langsmith() -> None:
@@ -117,11 +118,12 @@ def setup_langsmith() -> None:
     have already been set by a previous call or by the environment directly.
     """
     import os
-    api_key = settings.langchain_api_key.get_secret_value() if settings.langchain_api_key else ""
-    if settings.langchain_tracing_v2 and api_key:
+    s = get_settings()
+    api_key = s.langchain_api_key.get_secret_value() if s.langchain_api_key else ""
+    if s.langchain_tracing_v2 and api_key:
         os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
         os.environ.setdefault("LANGCHAIN_API_KEY", api_key)
-        os.environ.setdefault("LANGCHAIN_PROJECT", settings.langchain_project)
+        os.environ.setdefault("LANGCHAIN_PROJECT", s.langchain_project)
 
 
 def setup_all() -> None:

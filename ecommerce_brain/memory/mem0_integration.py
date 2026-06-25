@@ -15,75 +15,78 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-_mem0_instance = None
-_mem0_lock = threading.Lock()
 
+class _Mem0Singleton:
+    """Thread-safe lazy singleton for the Mem0 Memory instance.
 
-def _get_mem0():
-    """Return a shared Mem0 Memory instance, initialised lazily and thread-safely.
-
-    Uses double-checked locking to avoid acquiring the lock on every call once
-    the instance is ready.
+    Uses double-checked locking so the heavy initialization only runs once,
+    even under concurrent requests at startup.
     """
-    global _mem0_instance
-    if _mem0_instance is not None:
-        return _mem0_instance
 
-    with _mem0_lock:
-        if _mem0_instance is not None:
-            return _mem0_instance
+    _instance = None
+    _lock = threading.Lock()
 
-        try:
-            from mem0 import Memory
+    @classmethod
+    def get(cls):
+        """Return the shared Mem0 Memory instance, initialising lazily."""
+        if cls._instance is not None:
+            return cls._instance
 
-            from ecommerce_brain.config.settings import get_settings
+        with cls._lock:
+            if cls._instance is not None:
+                return cls._instance
 
-            s = get_settings()
+            try:
+                from mem0 import Memory
 
-            config = {
-                "vector_store": {
-                    "provider": "pgvector",
-                    "config": {
-                        "connection_string": s.database_url,
-                        "collection_name": "mem0_memories",
-                        "embedding_model_dims": 1536,
+                from ecommerce_brain.config.settings import get_settings
+
+                s = get_settings()
+
+                config = {
+                    "vector_store": {
+                        "provider": "pgvector",
+                        "config": {
+                            "connection_string": s.database_url,
+                            "collection_name": "mem0_memories",
+                            "embedding_model_dims": 1536,
+                        },
                     },
-                },
-                "embedder": {
-                    # Use openai provider — avoids needing azure-identity package.
-                    # The EPAM proxy is OpenAI-compatible; we pass api_key + base_url.
-                    "provider": "openai",
-                    "config": {
-                        "model": s.azure_openai_embedding_model,
-                        "api_key": s.azure_openai_api_key.get_secret_value(),
-                        "openai_base_url": (
-                            s.azure_openai_endpoint.rstrip("/")
-                            + f"/openai/deployments/{s.azure_openai_embedding_model}"
-                        ),
+                    "embedder": {
+                        # Use openai provider — avoids needing azure-identity package.
+                        # The EPAM proxy is OpenAI-compatible; we pass api_key + base_url.
+                        "provider": "openai",
+                        "config": {
+                            "model": s.azure_openai_embedding_model,
+                            "api_key": s.azure_openai_api_key.get_secret_value(),
+                            "openai_base_url": (
+                                s.azure_openai_endpoint.rstrip("/")
+                                + f"/openai/deployments/{s.azure_openai_embedding_model}"
+                            ),
+                        },
                     },
-                },
-                "llm": {
-                    "provider": "openai",
-                    "config": {
-                        "model": s.azure_openai_model,
-                        "api_key": s.azure_openai_api_key.get_secret_value(),
-                        "openai_base_url": (
-                            s.azure_openai_endpoint.rstrip("/")
-                            + f"/openai/deployments/{s.azure_openai_model}"
-                        ),
+                    "llm": {
+                        "provider": "openai",
+                        "config": {
+                            "model": s.azure_openai_model,
+                            "api_key": s.azure_openai_api_key.get_secret_value(),
+                            "openai_base_url": (
+                                s.azure_openai_endpoint.rstrip("/")
+                                + f"/openai/deployments/{s.azure_openai_model}"
+                            ),
+                        },
                     },
-                },
-            }
+                }
 
-            _mem0_instance = Memory.from_config(config)
-            log.info("mem0.initialized")
-            return _mem0_instance
-        except ImportError as exc:
-            log.warning("mem0.not_installed", hint="pip install mem0ai", import_error=repr(exc)[:300])
-            return None
-        except Exception as exc:
-            log.warning("mem0.init_failed", error=repr(exc)[:300])
-            return None
+                cls._instance = Memory.from_config(config)
+                log.info("mem0.initialized")
+                return cls._instance
+            except ImportError as exc:
+                log.warning("mem0.not_installed", hint="pip install mem0ai", import_error=repr(exc)[:300])
+                return None
+            except Exception as exc:
+                log.warning("mem0.init_failed", error=repr(exc)[:300])
+                return None
 
 
 def add_investigation_memory(
@@ -109,7 +112,7 @@ def add_investigation_memory(
     Returns:
         True if the memory was added successfully, False otherwise.
     """
-    mem = _get_mem0()
+    mem = _Mem0Singleton.get()
     if mem is None:
         return False
 
@@ -149,8 +152,17 @@ def recall_similar(
 
     Uses domain-scoped user_id so the sales agent only recalls sales patterns,
     the inventory agent only recalls inventory patterns, etc.
+
+    Args:
+        query: Natural language query to search for.
+        session_id: If provided, restrict recall to this session's memories.
+        domain: If provided, restrict recall to this domain's memories.
+        limit: Maximum number of results to return.
+
+    Returns:
+        List of dicts with keys: memory (str), score (float), metadata (dict).
     """
-    mem = _get_mem0()
+    mem = _Mem0Singleton.get()
     if mem is None:
         return []
 

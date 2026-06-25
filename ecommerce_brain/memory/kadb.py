@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from ecommerce_brain.db.engine import get_session
 from ecommerce_brain.db.models import KADBEntry
+from ecommerce_brain.exceptions import DatabaseError
 
 log = structlog.get_logger(__name__)
 
@@ -73,3 +74,4 @@ def record_execution(action_type: str, success: bool, revenue_impact: float = 0.
             entry.avg_revenue_impact = ((entry.avg_revenue_impact * (n - 1)) + revenue_impact) / n
     except Exception as exc:
         log.error("kadb.record_failed", action_type=action_type, error=str(exc))
+        raise DatabaseError(str(exc)) from exc

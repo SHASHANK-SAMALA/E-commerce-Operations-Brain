@@ -25,7 +25,7 @@ def _whisper_client() -> AzureOpenAI:
     s = get_settings()
     return AzureOpenAI(
         azure_endpoint=s.azure_openai_endpoint,
-        api_key=s.azure_openai_api_key,
+        api_key=s.azure_openai_api_key.get_secret_value(),
         api_version=s.azure_openai_api_version,
     )
 

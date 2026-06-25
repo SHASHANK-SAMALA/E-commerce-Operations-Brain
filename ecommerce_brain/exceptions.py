@@ -17,11 +17,20 @@ class ConfigurationError(EcommerceBrainError):
 
 
 class DatabaseError(EcommerceBrainError):
-    """A database operation failed."""
+    """A database operation failed.
+
+    Raised when SQLAlchemy or the underlying DB driver reports an error so
+    callers can distinguish database failures from other Exception types.
+    """
 
 
 class MCPServerError(EcommerceBrainError):
-    """An MCP tool server is unreachable or returned an unexpected error."""
+    """An MCP tool server is unreachable or returned an unexpected error.
+
+    Args:
+        domain: The agent domain key (e.g. "sales", "inventory").
+        message: Human-readable failure description.
+    """
 
     def __init__(self, domain: str, message: str) -> None:
         self.domain = domain
@@ -29,7 +38,12 @@ class MCPServerError(EcommerceBrainError):
 
 
 class AgentNotFoundError(EcommerceBrainError):
-    """The agent registry contains no spec for the requested name."""
+    """The agent registry contains no spec for the requested name.
+
+    Args:
+        name: The requested agent name.
+        available: Optional list of known agent names for the error message.
+    """
 
     def __init__(self, name: str, available: list[str] | None = None) -> None:
         self.name = name
@@ -38,7 +52,11 @@ class AgentNotFoundError(EcommerceBrainError):
 
 
 class HITLStateError(EcommerceBrainError):
-    """An invalid HITL state transition was attempted (e.g. resuming a non-pending investigation)."""
+    """An invalid HITL state transition was attempted.
+
+    Examples: resuming a non-pending investigation, approving an already-
+    completed investigation.
+    """
 
 
 class RoutingError(EcommerceBrainError):
@@ -47,3 +65,33 @@ class RoutingError(EcommerceBrainError):
 
 class EmbeddingError(EcommerceBrainError):
     """Embedding generation failed and the caller cannot proceed without a vector."""
+
+
+class MemoryWriteError(EcommerceBrainError):
+    """One or more memory backends failed to persist the investigation.
+
+    Raised (or used to tag audit log entries) when KEDB, incident store,
+    or Mem0 writes fail, so the graph surface area can report the failure
+    rather than silently completing with missing data.
+    """
+
+
+class StatusStoreError(EcommerceBrainError):
+    """The status store (Redis or in-memory fallback) encountered an error."""
+
+
+class LLMError(EcommerceBrainError):
+    """An LLM API call failed (network error, timeout, or unexpected response)."""
+
+
+class ToolExecutionError(EcommerceBrainError):
+    """A tool invocation failed during action execution.
+
+    Args:
+        tool_name: Name of the tool that failed.
+        message: Failure detail.
+    """
+
+    def __init__(self, tool_name: str, message: str) -> None:
+        self.tool_name = tool_name
+        super().__init__(f"Tool '{tool_name}' failed: {message}")

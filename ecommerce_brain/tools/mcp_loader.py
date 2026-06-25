@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import structlog
 
+from ecommerce_brain.exceptions import MCPServerError
+
 log = structlog.get_logger(__name__)
 
 _DOMAIN_URL_KEYS = {
@@ -46,11 +48,16 @@ async def get_mcp_tools(agent_name: str) -> list:
         List of LangChain-compatible tool objects from the MCP server.
 
     Raises:
-        RuntimeError: If the MCP server is unreachable.
+        MCPServerError: If the agent name is unknown, the URL is not configured,
+                        or the MCP server is unreachable.
     """
     url = _get_server_url(agent_name)
     if url is None:
-        return []
+        raise MCPServerError(
+            agent_name,
+            f"No MCP URL configured for agent '{agent_name}'. "
+            "Check mcp_{agent_name}_url in settings.",
+        )
 
     from langchain_mcp_adapters.client import MultiServerMCPClient
 
@@ -60,12 +67,10 @@ async def get_mcp_tools(agent_name: str) -> list:
         tools = await client.get_tools()
         log.info("mcp_tools.loaded", agent=agent_name, tools=[t.name for t in tools])
         return tools
+    except MCPServerError:
+        raise
     except Exception as exc:
-        raise RuntimeError(
-            f"MCP server for '{agent_name}' is unreachable ({url}). "
-            f"Start it with: python start_mcp_servers.py\nDetail: {exc!s}"
+        raise MCPServerError(
+            agent_name,
+            f"Server at {url} unreachable. Start with: python start_mcp_servers.py — {exc!s}",
         ) from exc
-
-
-
-

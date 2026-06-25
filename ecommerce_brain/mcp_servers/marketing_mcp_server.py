@@ -1,3 +1,5 @@
+"""Marketing MCP server — exposes marketing domain tools over SSE transport."""
+
 import structlog
 from mcp.server.fastmcp import FastMCP
 

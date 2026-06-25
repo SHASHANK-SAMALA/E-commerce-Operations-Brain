@@ -32,7 +32,7 @@ MAX_ITERATIONS = 5
 
 
 def create_react_agent(
-    llm,
+    llm: object,
     tools: list[BaseTool],
     *,
     system_prompt: str = "",
@@ -89,26 +89,19 @@ def create_react_agent(
 
         try:
             raw_result = await tool_map[name].ainvoke(args)
-            result_text = (
-                raw_result if isinstance(raw_result, str) else json.dumps(raw_result)
-            )
-            try:
-                check_for_injection(result_text, source=f"tool:{name}")
-            except InjectionDetected as inj:
-                # A compromised tool output must abort the entire agent run.
-                # Silently continuing would let the injected payload reach the LLM.
-                log.error(
-                    "react_agent.injection_in_tool_output",
-                    tool=name,
-                    pattern=inj.pattern_label,
-                )
-                raise  # propagates to domain_agents.py exception handler
-            log.info("react_agent.tool_executed", tool=name)
+        except InjectionDetected:
+            raise  # injection in tool invocation itself — abort the agent run
         except Exception as exc:
             result_text = json.dumps({"error": f"Tool '{name}' raised: {str(exc)[:200]}"})
             log.error("react_agent.tool_error", tool=name, error=str(exc))
-
-        return ToolMessage(tool_call_id=call_id, content=result_text)
+            return ToolMessage(tool_call_id=call_id, content=result_text)
+        else:
+            result_text = raw_result if isinstance(raw_result, str) else json.dumps(raw_result)
+            # Raises InjectionDetected if the tool output contains an injection pattern.
+            # This propagates up through asyncio.gather → tools_node → agent graph.
+            check_for_injection(result_text, source=f"tool:{name}")
+            log.info("react_agent.tool_executed", tool=name)
+            return ToolMessage(tool_call_id=call_id, content=result_text)
 
     async def tools_node(state: MessagesState) -> dict:
         last: AIMessage = state["messages"][-1]

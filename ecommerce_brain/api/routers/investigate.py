@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
@@ -12,6 +11,8 @@ from fastapi.responses import StreamingResponse
 
 from ecommerce_brain.api.deps import require_api_key
 from ecommerce_brain.api.status_store import get_status, set_status, update_status
+from ecommerce_brain.exceptions import HITLStateError
+from ecommerce_brain.utils.time import now_ms
 from ecommerce_brain.graph.graph import get_async_checkpointer, get_graph, new_investigation_id
 from ecommerce_brain.graph.state import GraphState
 from ecommerce_brain.guardrails.prompt_injection import InjectionDetected, check_for_injection
@@ -31,7 +32,9 @@ async def _run_investigation(query_id: str, thread_id: str, initial_state: dict)
             config = {"configurable": {"thread_id": thread_id}, "callbacks": []}
 
             async for event in graph.astream(initial_state, config=config):
-                node = list(event.keys())[0]
+                node = next(iter(event), None)
+                if node is None:
+                    continue
                 log.info("graph.event", node=node, query_id=query_id)
 
                 node_state = event.get(node, {})
@@ -128,7 +131,7 @@ async def start_investigation(
         "approved_actions": [],
         "execution_results": [],
         "total_tokens": 0,
-        "investigation_start_ms": int(time.time() * 1000),
+        "investigation_start_ms": now_ms(),
         "error": None,
         "blocked_reason": None,
         "audit_log": [],
@@ -202,7 +205,9 @@ async def resume_investigation(
     if entry.get("status") != "pending_approval":
         raise HTTPException(
             status_code=409,
-            detail=f"Investigation not awaiting approval (status={entry.get('status')})",
+            detail=str(HITLStateError(
+                f"Investigation not awaiting approval (status={entry.get('status')})"
+            )),
         )
 
     thread_id = entry["thread_id"]
@@ -222,7 +227,9 @@ async def resume_investigation(
             resume_command = Command(resume=resume_value)
 
             async for event in graph.astream(resume_command, config=config):
-                node = list(event.keys())[0]
+                node = next(iter(event), None)
+                if node is None:
+                    continue
                 log.info("graph.resume.event", node=node, query_id=query_id)
 
             state = await graph.aget_state(config)

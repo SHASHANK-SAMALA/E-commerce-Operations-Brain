@@ -110,6 +110,12 @@ def route(query: str) -> RoutingDecision:
 
     The first rule that matches wins. Returns a low-confidence fallback when
     nothing matches so the caller knows to invoke the LLM router instead.
+
+    Args:
+        query: Raw user query string.
+
+    Returns:
+        RoutingDecision with confidence=0.85 on a rule match, or 0.3 on fallback.
     """
     for pattern, domains, intent in _COMPILED:
         if pattern.search(query):
@@ -121,11 +127,11 @@ def route(query: str) -> RoutingDecision:
                 routing_source="rules_engine",
                 matched_rule=pattern.pattern[:60],
             )
-
-    return RoutingDecision(
-        intent="diagnose",
-        domains_required=["sales", "inventory", "marketing", "support"],
-        routing_confidence=0.3,
-        routing_source="rules_engine",
-        matched_rule=None,
-    )
+    else:
+        return RoutingDecision(
+            intent="diagnose",
+            domains_required=["sales", "inventory", "marketing", "support"],
+            routing_confidence=0.3,
+            routing_source="rules_engine",
+            matched_rule=None,
+        )

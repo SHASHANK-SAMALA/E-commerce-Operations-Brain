@@ -18,6 +18,11 @@ import warnings
 from contextlib import asynccontextmanager
 from typing import Any
 
+try:
+    from langgraph.graph.state import CompiledStateGraph
+except ImportError:
+    CompiledStateGraph = Any  # type: ignore[assignment,misc]
+
 # Suppress LangGraph msgpack warnings for our own Pydantic types — must be set before langgraph import.
 os.environ.setdefault(
     "LANGGRAPH_ALLOWED_MSGPACK_MODULES",
@@ -66,6 +71,7 @@ _DOMAIN_NODE_MAP: dict[str, str] = {
 # Edge conditions
 
 def _guardrail_edge(state: GraphState) -> str:
+    """Route to END when the guardrail blocked the query, otherwise continue."""
     if state.get("blocked_reason") or state.get("error"):
         return "blocked"
     return "ok"
@@ -90,6 +96,7 @@ def _after_memory_recall_edge(state: GraphState):
 
 
 def _reflection_edge(state: GraphState) -> str:
+    """Route to coordinator for another investigation pass, or proceed to synthesis."""
     result = state.get("reflection_result")
     if result and result.should_reinvestigate:
         return "reinvestigate"
@@ -97,6 +104,7 @@ def _reflection_edge(state: GraphState) -> str:
 
 
 def _hitl_edge(state: GraphState) -> str:
+    """Skip action execution when the human rejected or HITL was bypassed."""
     if state.get("skip_hitl"):
         return "execute"
     if state.get("hitl_status") == "rejected":
@@ -106,7 +114,7 @@ def _hitl_edge(state: GraphState) -> str:
 
 # Graph builder
 
-def build_graph(checkpointer=None) -> Any:
+def build_graph(checkpointer=None) -> CompiledStateGraph:
     builder = StateGraph(GraphState)
 
     # Nodes
@@ -190,31 +198,32 @@ async def get_async_checkpointer():
         await saver.setup()
         yield saver
 
-# Module-level graph instance (no checkpointer — for testing/dev without Postgres)
-_graph_no_checkpoint = None
-_graph_with_checkpoint = None
+# Dict-based cache avoids module-level globals and the ``global`` keyword.
+# Keys: "no_checkpoint" or "with_checkpoint".
+_graph_cache: dict[str, CompiledStateGraph] = {}
 
 
-def get_graph(with_checkpointer: bool = False, checkpointer: Any = None):
-    """Factory to return the compiled LangGraph state machine.
+def get_graph(
+    with_checkpointer: bool = False,
+    checkpointer: Any = None,
+) -> CompiledStateGraph:
+    """Return the compiled LangGraph state machine.
 
     Args:
         with_checkpointer: If True, attach a default synchronous Postgres saver.
-        checkpointer: Custom checkpointer (e.g. AsyncPostgresSaver). Overrides with_checkpointer.
+        checkpointer: Custom checkpointer (e.g. AsyncPostgresSaver). Overrides
+            with_checkpointer. Always builds a fresh graph — not cached.
+
+    Returns:
+        Compiled LangGraph StateGraph ready for invocation.
     """
     if checkpointer is not None:
         return build_graph(checkpointer)
 
-    if with_checkpointer:
-        global _graph_with_checkpoint
-        if _graph_with_checkpoint is None:
-            _graph_with_checkpoint = build_graph(get_checkpointer())
-        return _graph_with_checkpoint
-
-    global _graph_no_checkpoint
-    if _graph_no_checkpoint is None:
-        _graph_no_checkpoint = build_graph()
-    return _graph_no_checkpoint
+    key = "with_checkpoint" if with_checkpointer else "no_checkpoint"
+    if key not in _graph_cache:
+        _graph_cache[key] = build_graph(get_checkpointer() if with_checkpointer else None)
+    return _graph_cache[key]
 
 
 def new_investigation_id() -> str:

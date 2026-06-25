@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import re
-import time
 from typing import Literal
 
 import structlog
@@ -22,6 +21,7 @@ from opentelemetry.trace import Span
 from ecommerce_brain.graph.state import GraphState
 from ecommerce_brain.guardrails.prompt_injection import InjectionDetected, check_for_injection
 from ecommerce_brain.utils.llm_output import strip_code_fence
+from ecommerce_brain.utils.time import now_ms
 
 _tracer = trace.get_tracer("ecommerce_brain.guardrail")
 
@@ -109,14 +109,12 @@ def _tier1_classify(query: str) -> Literal["reject", "allow", "uncertain"]:
     if any(re.search(r"\b" + re.escape(kw), q_lower) for kw in _ECOMMERCE_ALLOW_KEYWORDS):
         return "allow"
 
-    query_words = set(re.findall(r"\w+", q_lower))
-
     for pattern in _REJECT_PATTERNS:
         if pattern.search(q_lower):
             return "reject"
 
     # Very short queries (≤ 3 tokens) are likely business commands; let coordinator decide.
-    if len(query_words) <= 3:
+    if len(q_lower.split()) <= 3:
         return "allow"
 
     return "uncertain"
@@ -165,7 +163,7 @@ def guardrail_node(state: GraphState) -> dict:
 
 
 def _guardrail_node_impl(state: GraphState, span: Span) -> dict:
-    start_ms = int(time.time() * 1000)
+    start_ms = now_ms()
     query = state["query"]
     query_id = state.get("query_id", "unknown")
     span.set_attribute("query_id", query_id)

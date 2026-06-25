@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import time
 
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -15,6 +14,7 @@ from ecommerce_brain.memory.kadb import get_action_stats
 from ecommerce_brain.observability.safe_metrics import safe_record
 from ecommerce_brain.observability.setup import llm_latency_histogram
 from ecommerce_brain.schemas.outputs import ProposedAction, RootCauseReport
+from ecommerce_brain.utils.time import now_ms
 
 log = structlog.get_logger(__name__)
 _tracer = trace.get_tracer("ecommerce_brain.synthesis")
@@ -190,8 +190,8 @@ async def synthesis_node(state: GraphState) -> dict:
     with _tracer.start_as_current_span("synthesis_node") as span:
         span.set_attribute("query_id", state.get("query_id", ""))
         span.set_attribute("intent", state.get("intent", "diagnose"))
-        start = state.get("investigation_start_ms", int(time.time() * 1000))
-        duration_ms = int(time.time() * 1000) - start
+        start = state.get("investigation_start_ms", now_ms())
+        duration_ms = now_ms() - start
 
         reports_text: list[str] = []
         for domain, key in [
@@ -249,7 +249,7 @@ async def synthesis_node(state: GraphState) -> dict:
         llm = synthesis_llm()
         structured_llm = llm.with_structured_output(RootCauseReport, method="function_calling")
 
-        llm_start_ms = int(time.time() * 1000)
+        llm_start_ms = now_ms()
         try:
             report: RootCauseReport = await structured_llm.ainvoke(messages)
         except Exception as exc:
@@ -263,7 +263,7 @@ async def synthesis_node(state: GraphState) -> dict:
         finally:
             safe_record(
                 llm_latency_histogram,
-                int(time.time() * 1000) - llm_start_ms,
+                now_ms() - llm_start_ms,
                 {"node": "synthesis"},
             )
 

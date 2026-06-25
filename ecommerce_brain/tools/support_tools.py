@@ -199,5 +199,3 @@ def get_complaint_trends(days: int = 14) -> list[dict]:
 
     return list(daily.values())
 
-
-

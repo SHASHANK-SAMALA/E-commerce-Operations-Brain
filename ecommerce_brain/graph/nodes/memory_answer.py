@@ -9,11 +9,10 @@ synthesis LLM call, and HITL — none of which make sense for a memory lookup.
 
 from __future__ import annotations
 
-import time
-
 import structlog
 
 from ecommerce_brain.graph.state import GraphState
+from ecommerce_brain.utils.time import now_ms
 from ecommerce_brain.schemas.outputs import RootCause, RootCauseReport
 
 log = structlog.get_logger(__name__)
@@ -23,8 +22,8 @@ def memory_answer_node(state: GraphState) -> dict:
     """Build a RootCauseReport from historical memory without any LLM call."""
     memory = state.get("memory_context")
     query = state["query"]
-    start_ms = state.get("investigation_start_ms", int(time.time() * 1000))
-    duration_ms = int(time.time() * 1000) - start_ms
+    start_ms = state.get("investigation_start_ms", now_ms())
+    duration_ms = now_ms() - start_ms
 
     root_causes: list[RootCause] = []
     summary_parts: list[str] = []

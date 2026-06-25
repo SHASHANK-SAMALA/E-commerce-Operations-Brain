@@ -103,21 +103,3 @@ def check_for_injection(text: str, source: str = "user_input") -> bool:
             )
             raise InjectionDetected(label, match.group(0))
     return True
-
-
-def sanitize_tool_output(text: str, tool_name: str) -> str:
-    """Strip injection attempts from tool outputs before they enter LLM context.
-
-    Rather than blocking (which would break the investigation), we strip the
-    injected text and log a warning. Returns sanitized string.
-    """
-    sanitized = text
-    for pattern, label in _COMPILED:
-        if pattern.search(sanitized):
-            log.warning(
-                "injection_stripped_from_tool_output",
-                tool=tool_name,
-                pattern=label,
-            )
-            sanitized = pattern.sub("[REDACTED]", sanitized)
-    return sanitized

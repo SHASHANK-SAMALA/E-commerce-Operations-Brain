@@ -1,7 +1,10 @@
+"""Support MCP server — exposes support domain tools over SSE transport."""
+
 import structlog
 from mcp.server.fastmcp import FastMCP
 
 from ecommerce_brain.tools.support_tools import get_common_issues as _get_common_issues
+from ecommerce_brain.tools.support_tools import get_complaint_trends as _get_complaint_trends
 from ecommerce_brain.tools.support_tools import get_complaint_volume as _get_complaint_volume
 from ecommerce_brain.tools.support_tools import get_refund_rate as _get_refund_rate
 from ecommerce_brain.tools.support_tools import get_review_sentiment as _get_review_sentiment
@@ -29,6 +32,13 @@ def get_common_issues(days: int = 7, top_n: int = 5) -> list[dict]:
 def get_review_sentiment(days: int = 7) -> dict:
     """Average sentiment score and negative ticket percentage."""
     return _get_review_sentiment(days=days)
+
+
+@mcp.tool()
+def get_complaint_trends(days: int = 14) -> list[dict]:
+    """Get daily complaint volume trend broken down by issue type for the last N days."""
+    return _get_complaint_trends(days=days)
+
 
 if __name__ == "__main__":
     log.info("mcp_server.starting", server="support", port=8004)
