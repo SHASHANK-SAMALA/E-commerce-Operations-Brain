@@ -5,8 +5,9 @@ from __future__ import annotations
 import csv
 import io
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 
 from ecommerce_brain.api.deps import require_api_key
 from ecommerce_brain.db.engine import get_session
@@ -16,8 +17,15 @@ router = APIRouter(prefix="/export", tags=["export"])
 
 
 @router.get("/incidents")
-def export_incidents(_: str = Depends(require_api_key)):
-    """Export full incident history as CSV."""
+def export_incidents(
+    limit: int = Query(default=500, ge=1, le=5000, description="Max rows to export"),
+    _: str = Depends(require_api_key),
+):
+    """Export incident history as CSV.
+
+    Args:
+        limit: Maximum number of rows to return (1–5000, default 500).
+    """
     output = io.StringIO()
     writer = csv.DictWriter(
         output,
@@ -28,7 +36,9 @@ def export_incidents(_: str = Depends(require_api_key)):
     )
     writer.writeheader()
     with get_session() as session:
-        incidents = session.query(Incident).order_by(Incident.created_at.desc()).limit(1000).all()
+        incidents = session.scalars(
+            select(Incident).order_by(Incident.created_at.desc()).limit(limit)
+        ).all()
         for inc in incidents:
             writer.writerow({
                 "id": str(inc.id),

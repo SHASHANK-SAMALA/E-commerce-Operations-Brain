@@ -12,7 +12,8 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-_TTL_SECONDS = 86400  # 24 hours
+_TTL_RUNNING_SECONDS = 3600 * 6  # 6 hours — hard cap for stuck investigations
+_TTL_TERMINAL_SECONDS = 86400    # 24 hours — completed / error / blocked results
 
 _redis_client = None
 _fallback_store: dict[str, dict] = {}
@@ -51,11 +52,15 @@ def get_status(query_id: str) -> dict | None:
     return _fallback_store.get(query_id)
 
 
+_TERMINAL_STATUSES = frozenset({"completed", "error", "blocked", "interrupted"})
+
+
 def set_status(query_id: str, data: dict) -> None:
     r = _get_redis()
     if r and _use_redis:
-        # redis-py 2.6.12+ deprecates setex — use set(key, value, ex=ttl)
-        r.set(_key(query_id), json.dumps(data, default=str), ex=_TTL_SECONDS)
+        status = data.get("status", "")
+        ttl = _TTL_TERMINAL_SECONDS if status in _TERMINAL_STATUSES else _TTL_RUNNING_SECONDS
+        r.set(_key(query_id), json.dumps(data, default=str), ex=ttl)
     else:
         _fallback_store[query_id] = data
 
@@ -89,7 +94,7 @@ def reconcile_running_investigations() -> int:
             if data.get("status") == "running":
                 data["status"] = "interrupted"
                 data["error"] = "Server restarted while investigation was running"
-                r.set(key, json.dumps(data, default=str), ex=_TTL_SECONDS)
+                r.set(key, json.dumps(data, default=str), ex=_TTL_TERMINAL_SECONDS)
                 reconciled += 1
     except Exception as exc:
         log.warning("status_store.reconcile_failed", error=str(exc)[:200])

@@ -1,19 +1,11 @@
-import logging
-
+import structlog
 from mcp.server.fastmcp import FastMCP
 
-from ecommerce_brain.tools.inventory_tools import (
-    get_restock_candidates as _get_restock_candidates,
-)
-from ecommerce_brain.tools.inventory_tools import (
-    get_stock_levels as _get_stock_levels,
-)
-from ecommerce_brain.tools.inventory_tools import (
-    get_stockout_products as _get_stockout_products,
-)
+from ecommerce_brain.tools.inventory_tools import get_restock_candidates as _get_restock_candidates
+from ecommerce_brain.tools.inventory_tools import get_stock_levels as _get_stock_levels
+from ecommerce_brain.tools.inventory_tools import get_stockout_products as _get_stockout_products
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("inventory_mcp_server")
+log = structlog.get_logger(__name__)
 
 mcp = FastMCP("inventory-mcp-server", port=8002, host="0.0.0.0")  # nosec B104
 
@@ -33,5 +25,5 @@ def get_restock_candidates(top_n: int = 10) -> list[dict]:
     return _get_restock_candidates(top_n=top_n)
 
 if __name__ == "__main__":
-    logger.info("Starting Inventory MCP Server on port 8002...")
+    log.info("mcp_server.starting", server="inventory", port=8002)
     mcp.run(transport="sse")

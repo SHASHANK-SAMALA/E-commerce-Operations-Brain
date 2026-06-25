@@ -97,6 +97,8 @@ def _reflection_edge(state: GraphState) -> str:
 
 
 def _hitl_edge(state: GraphState) -> str:
+    if state.get("skip_hitl"):
+        return "execute"
     if state.get("hitl_status") == "rejected":
         return "rejected"
     return "execute"
@@ -160,18 +162,31 @@ def build_graph(checkpointer=None) -> Any:
 
 
 def get_checkpointer():
-    """Create PostgresSaver checkpointer for HITL state persistence."""
-    from ecommerce_brain.config.settings import settings
-    conn = psycopg.connect(settings.database_url, autocommit=True)
+    """Create a PostgresSaver checkpointer for HITL state persistence.
+
+    The connection is owned by the returned saver.  Callers that need a bounded
+    lifetime should use ``get_async_checkpointer()`` instead, which is a proper
+    async context manager that closes the connection on exit.
+
+    Note: this synchronous variant is intended for use during application
+    startup (e.g. in ``get_graph(with_checkpointer=True)``).  Long-lived
+    processes should use the async variant via the lifespan context.
+    """
+    from ecommerce_brain.config.settings import get_settings
+    conn = psycopg.connect(get_settings().database_url, autocommit=True)
     saver = PostgresSaver(conn)
     saver.setup()
     return saver
 
 @asynccontextmanager
 async def get_async_checkpointer():
-    """Create AsyncPostgresSaver for async graph streaming."""
-    from ecommerce_brain.config.settings import settings
-    async with AsyncPostgresSaver.from_conn_string(settings.database_url) as saver:
+    """Async context manager that yields a ready AsyncPostgresSaver.
+
+    Use this inside FastAPI lifespan or background tasks — it closes the
+    underlying connection cleanly on exit.
+    """
+    from ecommerce_brain.config.settings import get_settings
+    async with AsyncPostgresSaver.from_conn_string(get_settings().database_url) as saver:
         await saver.setup()
         yield saver
 

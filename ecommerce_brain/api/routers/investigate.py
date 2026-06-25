@@ -12,13 +12,11 @@ from fastapi.responses import StreamingResponse
 
 from ecommerce_brain.api.deps import require_api_key
 from ecommerce_brain.api.status_store import get_status, set_status, update_status
-from ecommerce_brain.graph.graph import (
-    get_async_checkpointer,  # noqa: E402
-    get_graph,
-    new_investigation_id,
-)
+from ecommerce_brain.graph.graph import get_async_checkpointer, get_graph, new_investigation_id
 from ecommerce_brain.graph.state import GraphState
 from ecommerce_brain.guardrails.prompt_injection import InjectionDetected, check_for_injection
+from ecommerce_brain.observability.safe_metrics import safe_add
+from ecommerce_brain.observability.setup import investigation_counter
 from ecommerce_brain.schemas.inputs import HITLDecision, InvestigateRequest
 
 log = structlog.get_logger(__name__)
@@ -125,6 +123,7 @@ async def start_investigation(
         "loop_count": 0,
         "root_cause_report": None,
         "proposed_actions": [],
+        "skip_hitl": False,
         "hitl_status": "pending",
         "approved_actions": [],
         "execution_results": [],
@@ -136,13 +135,7 @@ async def start_investigation(
     }
 
     set_status(query_id, {"status": "running", "thread_id": thread_id, "query": req.query})
-
-    try:
-        from ecommerce_brain.observability.setup import investigation_counter
-        investigation_counter.add(1, {"intent": "unknown"})
-    except Exception:
-        pass
-
+    safe_add(investigation_counter, 1, {"intent": "unknown"})
     background_tasks.add_task(_run_investigation, query_id, thread_id, initial_state)
 
     return {"query_id": query_id, "status": "running"}

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 
 # ── Stockout (used in InventoryReport) ────────────────────────────────────────
 def _extract_first_number(value) -> float | None:
+    """Coerce a raw LLM value (str/int/float) to float, or return None if unparseable."""
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
@@ -202,9 +203,3 @@ class ExecutionResult(BaseModel):
     executed_at: datetime | None = None
 
 
-# ── Audit ─────────────────────────────────────────────────────────────────────
-class AuditEntry(BaseModel):
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    node: str
-    event: str
-    details: dict = Field(default_factory=dict)

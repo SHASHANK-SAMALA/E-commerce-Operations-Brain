@@ -107,7 +107,8 @@ def memory_answer_node(state: GraphState) -> dict:
     return {
         "root_cause_report": report,
         "proposed_actions": [],
-        "hitl_status": "approved",   # no HITL for memory queries
+        "skip_hitl": True,  # memory queries are read-only; HITL interrupt is not needed
+        "hitl_status": "pending",
         "approved_actions": [],
         "execution_results": [],
         "audit_log": [

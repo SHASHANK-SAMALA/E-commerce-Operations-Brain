@@ -7,15 +7,16 @@ from functools import cache
 from pathlib import Path
 
 import yaml
-from langchain_core.tools import BaseTool
 
-from ecommerce_brain.tools.registry import registry as tool_registry
+from ecommerce_brain.exceptions import AgentNotFoundError
 
 _DEFINITIONS_DIR = Path(__file__).parent / "definitions"
 
 
 @dataclass
 class AgentSpec:
+    """Immutable specification for a domain agent loaded from YAML."""
+
     name: str
     model: str
     temperature: float
@@ -24,13 +25,6 @@ class AgentSpec:
     system_prompt: str
     whitelisted_tools: list[str] = field(default_factory=list)
     allowed_mcp_servers: list[str] = field(default_factory=list)
-
-    def get_tools(self) -> list[BaseTool]:
-        """Return only the tools this agent is allowed to call."""
-        missing = [t for t in self.whitelisted_tools if t not in tool_registry]
-        if missing:
-            raise KeyError(f"Agent '{self.name}' references unknown tools: {missing}")
-        return [tool_registry[t] for t in self.whitelisted_tools]
 
 
 @cache
@@ -54,7 +48,15 @@ def load_all() -> dict[str, AgentSpec]:
 
 
 def get_agent(name: str) -> AgentSpec:
+    """Return the AgentSpec for the given name.
+
+    Args:
+        name: Agent identifier as defined in the YAML file (e.g. "sales_agent").
+
+    Raises:
+        AgentNotFoundError: If no spec is registered for ``name``.
+    """
     specs = load_all()
     if name not in specs:
-        raise KeyError(f"Agent '{name}' not found in registry. Available: {list(specs)}")
+        raise AgentNotFoundError(name, available=list(specs))
     return specs[name]

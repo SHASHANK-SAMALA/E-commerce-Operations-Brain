@@ -9,71 +9,81 @@ Uses pgvector as the vector store backend to stay within existing infrastructure
 
 from __future__ import annotations
 
+import threading
+
 import structlog
 
 log = structlog.get_logger(__name__)
 
 _mem0_instance = None
+_mem0_lock = threading.Lock()
 
 
 def _get_mem0():
+    """Return a shared Mem0 Memory instance, initialised lazily and thread-safely.
+
+    Uses double-checked locking to avoid acquiring the lock on every call once
+    the instance is ready.
+    """
     global _mem0_instance
     if _mem0_instance is not None:
         return _mem0_instance
 
-    try:
-        from mem0 import Memory
+    with _mem0_lock:
+        if _mem0_instance is not None:
+            return _mem0_instance
 
-        from ecommerce_brain.config.settings import get_settings
+        try:
+            from mem0 import Memory
 
-        settings = get_settings()
+            from ecommerce_brain.config.settings import get_settings
 
-        config = {
-            "vector_store": {
-                "provider": "pgvector",
-                "config": {
-                    "connection_string": settings.database_url,
-                    "collection_name": "mem0_memories",
-                    "embedding_model_dims": 1536,
+            s = get_settings()
+
+            config = {
+                "vector_store": {
+                    "provider": "pgvector",
+                    "config": {
+                        "connection_string": s.database_url,
+                        "collection_name": "mem0_memories",
+                        "embedding_model_dims": 1536,
+                    },
                 },
-            },
-            "embedder": {
-                # Use openai provider — avoids needing azure-identity package.
-                # The EPAM proxy is OpenAI-compatible; we pass api_key + base_url.
-                "provider": "openai",
-                "config": {
-                    "model": settings.azure_openai_embedding_model,
-                    "api_key": settings.azure_openai_api_key,
-                    "openai_base_url": (
-                        settings.azure_openai_endpoint.rstrip("/")
-                        + f"/openai/deployments/{settings.azure_openai_embedding_model}"
-                    ),
+                "embedder": {
+                    # Use openai provider — avoids needing azure-identity package.
+                    # The EPAM proxy is OpenAI-compatible; we pass api_key + base_url.
+                    "provider": "openai",
+                    "config": {
+                        "model": s.azure_openai_embedding_model,
+                        "api_key": s.azure_openai_api_key.get_secret_value(),
+                        "openai_base_url": (
+                            s.azure_openai_endpoint.rstrip("/")
+                            + f"/openai/deployments/{s.azure_openai_embedding_model}"
+                        ),
+                    },
                 },
-            },
-            "llm": {
-                # Same pattern for the LLM used by mem0 internally.
-                "provider": "openai",
-                "config": {
-                    "model": settings.azure_openai_model,
-                    "api_key": settings.azure_openai_api_key,
-                    "openai_base_url": (
-                        settings.azure_openai_endpoint.rstrip("/")
-                        + f"/openai/deployments/{settings.azure_openai_model}"
-                    ),
+                "llm": {
+                    "provider": "openai",
+                    "config": {
+                        "model": s.azure_openai_model,
+                        "api_key": s.azure_openai_api_key.get_secret_value(),
+                        "openai_base_url": (
+                            s.azure_openai_endpoint.rstrip("/")
+                            + f"/openai/deployments/{s.azure_openai_model}"
+                        ),
+                    },
                 },
-            },
-        }
+            }
 
-        _mem0_instance = Memory.from_config(config)
-        log.info("mem0.initialized")
-        return _mem0_instance
-    except ImportError as exc:
-        # Log the actual error — could be a transitive dependency missing (e.g. qdrant_client)
-        log.warning("mem0.not_installed", hint="pip install mem0ai", import_error=repr(exc)[:300])
-        return None
-    except Exception as exc:
-        log.warning("mem0.init_failed", error=repr(exc)[:300])
-        return None
+            _mem0_instance = Memory.from_config(config)
+            log.info("mem0.initialized")
+            return _mem0_instance
+        except ImportError as exc:
+            log.warning("mem0.not_installed", hint="pip install mem0ai", import_error=repr(exc)[:300])
+            return None
+        except Exception as exc:
+            log.warning("mem0.init_failed", error=repr(exc)[:300])
+            return None
 
 
 def add_investigation_memory(
@@ -85,7 +95,20 @@ def add_investigation_memory(
     session_id: str | None = None,
     domain: str | None = None,
 ) -> bool:
-    """Store a completed investigation as a semantic memory."""
+    """Store a completed investigation as a semantic memory.
+
+    Args:
+        query_id: Unique investigation identifier.
+        query: Original user query.
+        root_causes: List of root cause strings from the report.
+        actions_taken: Action types that executed successfully.
+        evidence_score: Evidence quality score in [0, 1].
+        session_id: If provided, scope the memory to this session.
+        domain: If provided, scope the memory to this domain agent.
+
+    Returns:
+        True if the memory was added successfully, False otherwise.
+    """
     mem = _get_mem0()
     if mem is None:
         return False
@@ -96,9 +119,6 @@ def add_investigation_memory(
         f"Evidence score: {evidence_score:.2f}."
     )
 
-    # Scope the user_id: per-session if available, otherwise per-domain.
-    # This prevents cross-domain memory contamination (e.g. stockout patterns
-    # appearing in the marketing agent's memory context).
     if session_id:
         user_id = session_id
     elif domain:
@@ -106,7 +126,7 @@ def add_investigation_memory(
     else:
         user_id = "ecommerce-ops"
 
-    metadata = {"query_id": query_id, "evidence_score": evidence_score}
+    metadata: dict = {"query_id": query_id, "evidence_score": evidence_score}
     if domain:
         metadata["domain"] = domain
 
@@ -143,7 +163,7 @@ def recall_similar(
 
     try:
         results = mem.search(query, filters={"user_id": user_id}, top_k=limit)
-        memories = []
+        memories: list[dict] = []
         for item in results.get("results", results) if isinstance(results, dict) else results:
             if isinstance(item, dict):
                 memories.append({
@@ -152,11 +172,7 @@ def recall_similar(
                     "metadata": item.get("metadata", {}),
                 })
             else:
-                memories.append({
-                    "memory": str(item),
-                    "score": 0.0,
-                    "metadata": {},
-                })
+                memories.append({"memory": str(item), "score": 0.0, "metadata": {}})
         log.info("mem0.recall", query_preview=query[:50], results=len(memories))
         return memories
     except Exception as exc:

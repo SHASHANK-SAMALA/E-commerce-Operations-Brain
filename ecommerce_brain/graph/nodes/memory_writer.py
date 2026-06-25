@@ -1,4 +1,8 @@
-"""Memory writer node — persists completed investigation to KEDB incident store + Mem0."""
+"""Memory writer node — persists completed investigation to KEDB incident store + Mem0.
+
+Each storage backend (incident store, KEDB, Mem0) is written in an independent
+try/except block so that a failure in one does not abort the others.
+"""
 
 from __future__ import annotations
 
@@ -14,43 +18,48 @@ log = structlog.get_logger(__name__)
 
 
 def memory_writer_node(state: GraphState) -> dict:
+    """Persist the completed investigation to all memory backends.
+
+    Writes to three independent stores in sequence.  Each is wrapped in its
+    own try/except so that a failure in any single store does not prevent the
+    others from being written.
+    """
     report = state.get("root_cause_report")
     if not report:
         return {"audit_log": [{"node": "memory_writer", "event": "skipped", "reason": "no_report"}]}
 
     start_ms = state.get("investigation_start_ms", int(time.time() * 1000))
     duration_ms = int(time.time() * 1000) - start_ms
-    root_causes = [rc.cause for rc in report.root_causes] if hasattr(report, "root_causes") else []
-    actions_proposed = (
-        [a.model_dump() for a in report.proposed_actions]
-        if hasattr(report, "proposed_actions")
-        else []
-    )
+    root_causes = [rc.cause for rc in report.root_causes]
+    actions_proposed = [a.model_dump() for a in report.proposed_actions]
     actions_approved = [
         {"action_id": a["action_id"], "action_type": a["action_type"]}
         for a in state.get("approved_actions", [])
     ]
     actions_executed = state.get("execution_results", [])
 
+    incident_id: str | None = None
+
+    # ── Incident store ────────────────────────────────────────────────────────
     try:
         incident_id = save_incident(
             query=state["query"],
             intent=state.get("intent", "diagnose"),
             domains=state.get("domains_required", []),
             root_causes=root_causes,
-            evidence_score=(
-                report.evidence_score if hasattr(report, "evidence_score") else 0.0
-            ),
+            evidence_score=report.evidence_score,
             actions_proposed=actions_proposed,
             actions_approved=actions_approved,
             actions_executed=actions_executed,
             tokens_used=state.get("total_tokens", 0),
             duration_ms=duration_ms,
         )
-        log.info("memory_writer.saved", incident_id=incident_id)
+        log.info("memory_writer.incident_saved", incident_id=incident_id)
+    except Exception as exc:
+        log.error("memory_writer.incident_failed", error=str(exc))
 
-        # KEDB: upsert a reusable knowledge entry from this investigation's findings.
-        # Resolution steps are derived from proposed actions (action_type + impact).
+    # ── KEDB upsert ───────────────────────────────────────────────────────────
+    try:
         kedb_resolution_steps = [
             f"{a.get('action_type', 'unknown')}: {a.get('estimated_impact', '')}"
             for a in actions_proposed
@@ -62,18 +71,18 @@ def memory_writer_node(state: GraphState) -> dict:
             resolution_steps=kedb_resolution_steps,
             affected_domains=state.get("domains_required", []),
         )
+    except Exception as exc:
+        log.error("memory_writer.kedb_failed", error=str(exc))
 
-        # Mem0: store semantic memory of this investigation.
-        # Write once per domain so that each domain agent can recall only its own
-        # historical patterns (domain-scoped user_id = "ecommerce-{domain}").
-        # Also write a session-scoped entry so cross-domain memory_query still works.
+    # ── Mem0 semantic memory ──────────────────────────────────────────────────
+    try:
         actions_taken = [
-            f"{a.get('action_type', 'unknown')}"
+            a.get("action_type", "unknown")
             for a in actions_executed
             if isinstance(a, dict) and a.get("success", False)
         ]
-        evidence_score = report.evidence_score if hasattr(report, "evidence_score") else 0.0
-        # Session-scoped write (cross-domain queries / memory_query intent)
+        evidence_score = report.evidence_score
+
         add_investigation_memory(
             query_id=state["query_id"],
             query=state["query"],
@@ -82,7 +91,6 @@ def memory_writer_node(state: GraphState) -> dict:
             evidence_score=evidence_score,
             session_id=state.get("session_id"),
         )
-        # Domain-scoped writes — ensures each agent only recalls its own patterns
         for domain in state.get("domains_required", []):
             add_investigation_memory(
                 query_id=state["query_id"],
@@ -92,8 +100,15 @@ def memory_writer_node(state: GraphState) -> dict:
                 evidence_score=evidence_score,
                 domain=domain,
             )
-
-        return {"audit_log": [{"node": "memory_writer", "event": "saved", "incident_id": incident_id}]}  # noqa: E501
     except Exception as exc:
-        log.error("memory_writer.failed", error=str(exc))
-        return {"audit_log": [{"node": "memory_writer", "event": "failed", "error": str(exc)[:200]}]}  # noqa: E501
+        log.error("memory_writer.mem0_failed", error=str(exc))
+
+    return {
+        "audit_log": [
+            {
+                "node": "memory_writer",
+                "event": "saved",
+                "incident_id": incident_id,
+            }
+        ]
+    }

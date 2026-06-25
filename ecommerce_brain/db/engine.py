@@ -35,7 +35,7 @@ engine = create_engine(_db_url, **_engine_kwargs)
 # Enable pgvector extension on first connect (Postgres only — SQLite has no extensions)
 if not _is_sqlite:
     @event.listens_for(engine, "connect")
-    def _enable_pgvector(dbapi_connection, connection_record):  # noqa: ARG001
+    def _enable_pgvector(dbapi_connection, _connection_record):
         cursor = dbapi_connection.cursor()
         cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
         dbapi_connection.commit()
@@ -51,7 +51,8 @@ class Base(DeclarativeBase):
 
 def initialize_database() -> None:
     """Import ORM models and create any missing tables."""
-    from ecommerce_brain.db import models  # noqa: F401
+    import ecommerce_brain.db.models as _models  # side-effects: registers all ORM models with Base
+    del _models
 
     Base.metadata.create_all(engine)
 

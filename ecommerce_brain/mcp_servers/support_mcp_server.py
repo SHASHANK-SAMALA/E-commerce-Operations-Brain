@@ -1,22 +1,12 @@
-import logging
-
+import structlog
 from mcp.server.fastmcp import FastMCP
 
-from ecommerce_brain.tools.support_tools import (
-    get_common_issues as _get_common_issues,
-)
-from ecommerce_brain.tools.support_tools import (
-    get_complaint_volume as _get_complaint_volume,
-)
-from ecommerce_brain.tools.support_tools import (
-    get_refund_rate as _get_refund_rate,
-)
-from ecommerce_brain.tools.support_tools import (
-    get_review_sentiment as _get_review_sentiment,
-)
+from ecommerce_brain.tools.support_tools import get_common_issues as _get_common_issues
+from ecommerce_brain.tools.support_tools import get_complaint_volume as _get_complaint_volume
+from ecommerce_brain.tools.support_tools import get_refund_rate as _get_refund_rate
+from ecommerce_brain.tools.support_tools import get_review_sentiment as _get_review_sentiment
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("support_mcp_server")
+log = structlog.get_logger(__name__)
 
 mcp = FastMCP("support-mcp-server", port=8004, host="0.0.0.0")  # nosec B104
 
@@ -41,5 +31,5 @@ def get_review_sentiment(days: int = 7) -> dict:
     return _get_review_sentiment(days=days)
 
 if __name__ == "__main__":
-    logger.info("Starting Support MCP Server on port 8004...")
+    log.info("mcp_server.starting", server="support", port=8004)
     mcp.run(transport="sse")

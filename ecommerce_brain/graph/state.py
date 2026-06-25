@@ -20,7 +20,12 @@ from ecommerce_brain.schemas.outputs import (
 from ecommerce_brain.schemas.routing import RoutingDecision
 
 
-class ProposedAction(TypedDict):
+class ActionState(TypedDict):
+    """In-graph proposed action record — lightweight TypedDict for state passage.
+
+    The full API-facing model is schemas.outputs.ProposedAction (Pydantic).
+    """
+
     action_id: str
     action_type: str
     params: dict[str, Any]
@@ -29,13 +34,24 @@ class ProposedAction(TypedDict):
     kadb_success_rate: float | None
 
 
-class ExecutionResult(TypedDict):
+class ExecutionState(TypedDict):
+    """In-graph execution record — lightweight TypedDict for state passage.
+
+    The full API-facing result is schemas.outputs.ExecutionResult (Pydantic).
+    """
+
     action_id: str
     success: bool
     message: str
 
 
 class GraphState(TypedDict):
+    """Full mutable state threaded through every graph node.
+
+    Append-only fields use ``Annotated[list, operator.add]`` so parallel fan-out
+    nodes can each write without clobbering each other's entries.
+    """
+
     # Request
     query: str
     query_id: str
@@ -62,14 +78,17 @@ class GraphState(TypedDict):
 
     # Synthesis
     root_cause_report: RootCauseReport | None
-    proposed_actions: list[ProposedAction]
+    proposed_actions: list[ActionState]
 
     # HITL — "pending" | "pending_approval" | "approved" | "rejected"
     hitl_status: str
-    approved_actions: list[ProposedAction]
+    # Set True by paths that never need human approval (e.g. memory_query).
+    # Checked by _hitl_edge in graph.py to skip the interrupt call entirely.
+    skip_hitl: bool
+    approved_actions: list[ActionState]
 
     # Execution
-    execution_results: list[ExecutionResult]
+    execution_results: list[ExecutionState]
 
     # Telemetry
     investigation_start_ms: int

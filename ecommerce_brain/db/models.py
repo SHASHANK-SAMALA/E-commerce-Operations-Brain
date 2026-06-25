@@ -1,6 +1,8 @@
 """SQLAlchemy ORM models: incidents, KEDB, KADB, audit_log.
 
-pgvector column used for semantic search on incident embeddings.
+pgvector column used for semantic search on incident/KEDB embeddings.
+VectorSearchMixin provides a shared cosine-distance search classmethod so
+the identical SQL pattern is not duplicated across model classes.
 """
 
 from __future__ import annotations
@@ -25,10 +27,35 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from ecommerce_brain.db.engine import Base
 from ecommerce_brain.llm import EMBEDDING_DIM
 
-_EMBEDDING_DIM = EMBEDDING_DIM  # 1536 for text-embedding-3-small
+
+class VectorSearchMixin:
+    """Adds cosine-distance vector search to any ORM model with an embedding column."""
+
+    embedding: Mapped[list | None]
+
+    @classmethod
+    def search_similar(
+        cls, session: Session, query_embedding: list[float], top_k: int = 3
+    ) -> list:
+        """Return the top_k rows ordered by cosine distance to query_embedding.
+
+        Args:
+            session: Active SQLAlchemy session.
+            query_embedding: Query vector of length EMBEDDING_DIM.
+            top_k: Maximum number of results to return.
+
+        Returns:
+            List of ORM instances sorted nearest-first.
+        """
+        stmt = (
+            select(cls)
+            .order_by(cls.embedding.cosine_distance(query_embedding))
+            .limit(top_k)
+        )
+        return list(session.scalars(stmt))
 
 
-class Incident(Base):
+class Incident(VectorSearchMixin, Base):
     """Full investigation record — stored post-resolution for future recall."""
 
     __tablename__ = "incidents"
@@ -45,22 +72,13 @@ class Incident(Base):
     resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     tokens_used: Mapped[int] = mapped_column(Integer, default=0)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
-    embedding: Mapped[list | None] = mapped_column(Vector(_EMBEDDING_DIM), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    @classmethod
-    def search_similar(
-        cls, session: Session, query_embedding: list[float], top_k: int = 3
-    ) -> list[Incident]:
-        stmt = (
-            select(cls)
-            .order_by(cls.embedding.cosine_distance(query_embedding))
-            .limit(top_k)
-        )
-        return list(session.scalars(stmt))
+    embedding: Mapped[list | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
-class KEDBEntry(Base):
+class KEDBEntry(VectorSearchMixin, Base):
     """Known Error Database — maps symptom patterns to root causes + resolutions."""
 
     __tablename__ = "kedb"
@@ -71,19 +89,10 @@ class KEDBEntry(Base):
     resolution_steps: Mapped[list] = mapped_column(JSONB, default=list)
     affected_domains: Mapped[list] = mapped_column(JSONB, default=list)
     occurrence_count: Mapped[int] = mapped_column(Integer, default=1)
-    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    embedding: Mapped[list | None] = mapped_column(Vector(_EMBEDDING_DIM), nullable=True)
-
-    @classmethod
-    def search_similar(
-        cls, session: Session, query_embedding: list[float], top_k: int = 3
-    ) -> list[KEDBEntry]:
-        stmt = (
-            select(cls)
-            .order_by(cls.embedding.cosine_distance(query_embedding))
-            .limit(top_k)
-        )
-        return list(session.scalars(stmt))
+    last_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    embedding: Mapped[list | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
 
 
 class KADBEntry(Base):
@@ -104,6 +113,7 @@ class KADBEntry(Base):
 
     @property
     def success_rate(self) -> float:
+        """Fraction of executions that were successful. Returns 0.0 if never executed."""
         if self.total_executions == 0:
             return 0.0
         return self.successful_executions / self.total_executions
@@ -120,12 +130,16 @@ class AuditLog(Base):
     event: Mapped[str] = mapped_column(Text, nullable=False)
     data: Mapped[dict] = mapped_column(JSONB, default=dict)
     is_security_event: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
-# Mock data tables (used by MCP servers — no LLM required, deterministic)
+# ── Mock data tables (used by MCP servers — deterministic, no LLM required) ───
 
 class MockProduct(Base):
+    """Simulated product catalogue used by inventory MCP tools in dev/test."""
+
     __tablename__ = "mock_products"
 
     sku: Mapped[str] = mapped_column(String(50), primary_key=True)
@@ -138,6 +152,8 @@ class MockProduct(Base):
 
 
 class MockSalesMetric(Base):
+    """Daily revenue / order metrics used by sales MCP tools in dev/test."""
+
     __tablename__ = "mock_sales_metrics"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -150,6 +166,8 @@ class MockSalesMetric(Base):
 
 
 class MockCampaign(Base):
+    """Simulated ad campaigns used by marketing MCP tools in dev/test."""
+
     __tablename__ = "mock_campaigns"
 
     campaign_id: Mapped[str] = mapped_column(String(50), primary_key=True)
@@ -162,6 +180,8 @@ class MockCampaign(Base):
 
 
 class MockSupportTicket(Base):
+    """Simulated customer support tickets used by support MCP tools in dev/test."""
+
     __tablename__ = "mock_support_tickets"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from ecommerce_brain.db.engine import get_session
 from ecommerce_brain.db.models import MockCampaign, MockProduct
+from ecommerce_brain.tools.constants import ROAS_MULTIPLIER
 from ecommerce_brain.tools.registry import register_tool
 
 
@@ -27,6 +28,11 @@ class ApplyDiscountInput(BaseModel):
     dry_run: bool = Field(default=True)
 
 
+class ResumeCampaignInput(BaseModel):
+    campaign_id: str
+    dry_run: bool = Field(default=True)
+
+
 @register_tool(args_schema=RestockProductInput)
 def restock_product(sku: str, quantity: int, dry_run: bool = True) -> dict:
     """Place a restock order for a SKU. dry_run=True validates without executing."""
@@ -39,7 +45,7 @@ def restock_product(sku: str, quantity: int, dry_run: bool = True) -> dict:
         new_stock = current + quantity
         estimated_cost = round(quantity * product.unit_cost, 2)
 
-        result = {
+        result: dict = {
             "sku": sku,
             "name": product.name,
             "current_stock": current,
@@ -53,9 +59,7 @@ def restock_product(sku: str, quantity: int, dry_run: bool = True) -> dict:
         if not dry_run:
             product.current_stock = new_stock
             result["success"] = True
-            result["message"] = (
-                f"Restocked {sku}: {current} → {new_stock} units (ordered {quantity})"
-            )
+            result["message"] = f"Restocked {sku}: {current} → {new_stock} units (ordered {quantity})"
         else:
             result["success"] = True
             result["message"] = (
@@ -69,15 +73,13 @@ def restock_product(sku: str, quantity: int, dry_run: bool = True) -> dict:
 @register_tool(args_schema=IncreaseCampaignBudgetInput)
 def increase_campaign_budget(campaign_id: str, increase_pct: float, dry_run: bool = True) -> dict:
     """Increase daily budget for a campaign by given percentage."""
-    from ecommerce_brain.db.models import MockCampaign
-
     with get_session() as session:
         campaign = session.get(MockCampaign, campaign_id)
         if not campaign:
-            return {"success": False, "error": f"Campaign {campaign_id} not found", "dry_run": dry_run}  # noqa: E501
+            return {"success": False, "error": f"Campaign {campaign_id} not found", "dry_run": dry_run}
 
         new_budget = round(campaign.daily_budget * (1 + increase_pct / 100), 2)
-        result = {
+        result: dict = {
             "campaign_id": campaign_id,
             "name": campaign.name,
             "current_budget": campaign.daily_budget,
@@ -90,7 +92,9 @@ def increase_campaign_budget(campaign_id: str, increase_pct: float, dry_run: boo
         if not dry_run:
             campaign.daily_budget = new_budget
             result["success"] = True
-            result["message"] = f"Budget updated: ${campaign.daily_budget:,.2f} → ${new_budget:,.2f}/day"  # noqa: E501
+            result["message"] = (
+                f"Budget updated: ${campaign.daily_budget:,.2f} → ${new_budget:,.2f}/day"
+            )
         else:
             result["success"] = True
             result["message"] = (
@@ -104,7 +108,7 @@ def increase_campaign_budget(campaign_id: str, increase_pct: float, dry_run: boo
 @register_tool(args_schema=ApplyDiscountInput)
 def apply_discount_promotion(category: str, discount_pct: float, dry_run: bool = True) -> dict:
     """Apply a category-wide discount promotion."""
-    result = {
+    result: dict = {
         "category": category,
         "discount_pct": discount_pct,
         "dry_run": dry_run,
@@ -120,11 +124,6 @@ def apply_discount_promotion(category: str, discount_pct: float, dry_run: bool =
     return result
 
 
-class ResumeCampaignInput(BaseModel):
-    campaign_id: str
-    dry_run: bool = Field(default=True)
-
-
 @register_tool(args_schema=ResumeCampaignInput)
 def resume_campaign(campaign_id: str, dry_run: bool = True) -> dict:
     """Resume a paused campaign. dry_run=True (default) — validate only, don't execute."""
@@ -137,14 +136,15 @@ def resume_campaign(campaign_id: str, dry_run: bool = True) -> dict:
         if campaign.status == "active":
             return {"success": False, "error": f"Campaign {campaign_id} is already active"}
 
-        result = {
+        estimated_daily_revenue = round(campaign.daily_budget * ROAS_MULTIPLIER, 2)
+        result: dict = {
             "campaign_id": campaign_id,
             "name": campaign.name,
             "channel": campaign.channel,
             "daily_budget": campaign.daily_budget,
             "dry_run": dry_run,
             "action": "resume_campaign",
-            "estimated_daily_revenue": round(campaign.daily_budget * 3.8, 2),
+            "estimated_daily_revenue": estimated_daily_revenue,
         }
 
         if not dry_run:
@@ -156,8 +156,7 @@ def resume_campaign(campaign_id: str, dry_run: bool = True) -> dict:
             result["success"] = True
             result["message"] = (
                 f"DRY RUN: Campaign {campaign_id} would be resumed"
-                f" — estimated +${result['estimated_daily_revenue']}/day"
+                f" — estimated +${estimated_daily_revenue}/day"
             )
 
     return result
-

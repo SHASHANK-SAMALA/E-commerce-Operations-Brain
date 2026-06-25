@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import statistics
 from datetime import date, timedelta
 
 from pydantic import BaseModel, Field
@@ -111,7 +112,6 @@ def get_anomaly_score(metric: str = "revenue", days: int = 7) -> dict:
     baseline = values[:-days]
     recent = values[-days:]
 
-    import statistics
     mean = statistics.mean(baseline)
     stdev = statistics.stdev(baseline) or 1.0
     latest = statistics.mean(recent)

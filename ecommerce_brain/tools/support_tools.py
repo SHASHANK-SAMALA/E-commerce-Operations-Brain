@@ -167,15 +167,6 @@ def get_review_sentiment(days: int = 7) -> dict:
     }
 
 
-# ── Semantic aliases used by the agent YAML definitions ────────────────────────
-
-
-@register_tool(args_schema=GetComplaintVolumeInput)
-def get_ticket_summary(days: int = 7) -> dict:
-    """Get complaint ticket summary for current vs prior period — alias for get_complaint_volume."""
-    return get_complaint_volume(days=days)
-
-
 class GetComplaintTrendsInput(BaseModel):
     days: int = Field(default=14, ge=1, le=60)
 
@@ -209,13 +200,4 @@ def get_complaint_trends(days: int = 14) -> list[dict]:
     return list(daily.values())
 
 
-@register_tool(args_schema=GetRefundRateInput)
-def get_refund_analysis(days: int = 7) -> dict:
-    """Get refund analysis including rate, volume, and top SKUs — alias for get_refund_rate."""
-    return get_refund_rate(days=days)
 
-
-@register_tool(args_schema=GetComplaintVolumeInput)
-def get_sentiment_summary(days: int = 7) -> dict:
-    """Get sentiment score summary with trend classification — alias for get_review_sentiment."""
-    return get_review_sentiment(days=days)

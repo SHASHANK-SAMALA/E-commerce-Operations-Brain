@@ -12,6 +12,7 @@ from ecommerce_brain.agents.registry import get_agent
 from ecommerce_brain.graph.routing.rules_engine import route
 from ecommerce_brain.graph.state import GraphState
 from ecommerce_brain.schemas.routing import RoutingDecision
+from ecommerce_brain.utils.llm_output import strip_code_fence
 
 log = structlog.get_logger(__name__)
 _tracer = trace.get_tracer("ecommerce_brain.coordinator")
@@ -57,10 +58,7 @@ def coordinator_node(state: GraphState) -> dict:
             ]
             try:
                 response = routing_llm().invoke(messages)
-                raw = response.content.strip()
-                # Strip markdown code fences if present
-                if raw.startswith("```"):
-                    raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+                raw = strip_code_fence(response.content)
                 data = json.loads(raw)
                 data["routing_source"] = "llm_fallback"
                 # Normalise non-standard intent values the LLM sometimes returns.

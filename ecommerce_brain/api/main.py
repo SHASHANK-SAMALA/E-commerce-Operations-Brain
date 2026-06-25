@@ -18,16 +18,17 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from ecommerce_brain.api.routers import investigate
-from ecommerce_brain.db.engine import initialize_database
+from ecommerce_brain.api.routers import audio, export, investigate
 from ecommerce_brain.api.status_store import reconcile_running_investigations
+from ecommerce_brain.config.settings import get_settings
+from ecommerce_brain.db.engine import initialize_database
 from ecommerce_brain.observability.setup import setup_all
 
 log = structlog.get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):  # noqa: ARG001
+async def lifespan(_app: FastAPI):
     initialize_database()
     setup_all()
     reconcile_running_investigations()
@@ -47,20 +48,18 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-from ecommerce_brain.config.settings import settings  # noqa: E402
+_settings = get_settings()
 
-if settings.otel_enabled:
-    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor  # noqa: E402
+if _settings.otel_enabled:
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
     FastAPIInstrumentor.instrument_app(app)
 
-# Rate limiting
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS — restricted to local frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=_settings.cors_allowed_origins,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
@@ -74,11 +73,12 @@ async def logging_context_middleware(request: Request, call_next):
         method=request.method,
         path=request.url.path,
     )
-    response = await call_next(request)
-    return response
+    return await call_next(request)
+
 
 @app.get("/health", tags=["meta"])
 def health():
+    """Liveness probe — returns 200 when the server is up."""
     return {"status": "ok"}
 
 
@@ -91,6 +91,6 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# Routers
 app.include_router(investigate.router, prefix="/api/v1")
-
+app.include_router(audio.router, prefix="/api/v1")
+app.include_router(export.router, prefix="/api/v1")

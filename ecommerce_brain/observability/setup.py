@@ -63,14 +63,12 @@ def setup_logging() -> None:
         logger_factory=structlog.PrintLoggerFactory(),
     )
 
-    # Silence LangGraph checkpoint deserialisation warnings — these are safe because
-    # all listed modules are first-party types defined in this codebase.
-    #so this will control the logging warnings
+    # Silence LangGraph checkpoint deserialisation warnings for first-party types.
     logging.getLogger("langgraph.checkpoint").setLevel(logging.ERROR)
     logging.getLogger("langgraph.checkpoint.postgres").setLevel(logging.ERROR)
 
-    # this will control the python warnings not logging warnings
     import warnings
+
     warnings.filterwarnings(
         "ignore",
         message="Deserializing unregistered type",
@@ -89,36 +87,41 @@ def setup_otel() -> None:
 
     # Try OTLP gRPC first (requires opentelemetry-exporter-otlp-proto-grpc).
     # Fall back to ConsoleSpanExporter which is always available in the SDK.
+    # importlib avoids a static import that mypy would flag when the package is absent.
     try:
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-            OTLPSpanExporter,  # type: ignore[import]
+        import importlib
+        _otlp = importlib.import_module(
+            "opentelemetry.exporter.otlp.proto.grpc.trace_exporter"
         )
-        span_exporter = OTLPSpanExporter(endpoint=settings.otel_endpoint, insecure=True)
+        span_exporter = _otlp.OTLPSpanExporter(
+            endpoint=settings.otel_endpoint, insecure=True
+        )
     except ImportError:
         from opentelemetry.sdk.trace.export import ConsoleSpanExporter
         span_exporter = ConsoleSpanExporter()
 
     tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))
-    #below line makes it global
     trace.set_tracer_provider(tracer_provider)
 
     # ── Metrics → Prometheus ──────────────────────────────────────────────────
     reader = PrometheusMetricReader()
     metrics_provider = MeterProvider(metric_readers=[reader])
-    # makes it global like above but for metrics not spans
     metrics.set_meter_provider(metrics_provider)
-
-    # Start Prometheus scrape endpoint
     start_http_server(settings.prometheus_port)
 
 
 def setup_langsmith() -> None:
-    """Enable LangSmith tracing if configured."""
+    """Enable LangSmith tracing if configured.
+
+    Idempotent — safe to call multiple times; will not overwrite values that
+    have already been set by a previous call or by the environment directly.
+    """
     import os
-    if settings.langchain_tracing_v2 and settings.langchain_api_key:
-        os.environ["LANGCHAIN_TRACING_V2"] = "true"
-        os.environ["LANGCHAIN_API_KEY"] = settings.langchain_api_key
-        os.environ["LANGCHAIN_PROJECT"] = settings.langchain_project
+    api_key = settings.langchain_api_key.get_secret_value() if settings.langchain_api_key else ""
+    if settings.langchain_tracing_v2 and api_key:
+        os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
+        os.environ.setdefault("LANGCHAIN_API_KEY", api_key)
+        os.environ.setdefault("LANGCHAIN_PROJECT", settings.langchain_project)
 
 
 def setup_all() -> None:

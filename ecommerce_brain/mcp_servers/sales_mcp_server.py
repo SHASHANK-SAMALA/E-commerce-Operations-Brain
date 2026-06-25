@@ -1,19 +1,11 @@
-import logging
-
+import structlog
 from mcp.server.fastmcp import FastMCP
 
-from ecommerce_brain.tools.sales_tools import (
-    get_anomaly_score as _get_anomaly_score,
-)
-from ecommerce_brain.tools.sales_tools import (
-    get_order_breakdown as _get_order_breakdown,
-)
-from ecommerce_brain.tools.sales_tools import (
-    get_revenue_metrics as _get_revenue_metrics,
-)
+from ecommerce_brain.tools.sales_tools import get_anomaly_score as _get_anomaly_score
+from ecommerce_brain.tools.sales_tools import get_order_breakdown as _get_order_breakdown
+from ecommerce_brain.tools.sales_tools import get_revenue_metrics as _get_revenue_metrics
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("sales_mcp_server")
+log = structlog.get_logger(__name__)
 
 mcp = FastMCP("sales-mcp-server", port=8001, host="0.0.0.0")  # nosec B104
 
@@ -33,5 +25,5 @@ def get_anomaly_score(metric: str = "revenue", days: int = 7) -> dict:
     return _get_anomaly_score(metric=metric, days=days)
 
 if __name__ == "__main__":
-    logger.info("Starting Sales MCP Server on port 8001...")
+    log.info("mcp_server.starting", server="sales", port=8001)
     mcp.run(transport="sse")

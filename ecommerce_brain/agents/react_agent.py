@@ -29,7 +29,6 @@ log = structlog.get_logger(__name__)
 # Maximum number of tool-call rounds before the agent is forced to conclude.
 # Exported so domain_agents.py can import it rather than redefine the same constant.
 MAX_ITERATIONS = 5
-_MAX_ITERATIONS = MAX_ITERATIONS  # backward-compat alias
 
 
 def create_react_agent(
@@ -37,7 +36,7 @@ def create_react_agent(
     tools: list[BaseTool],
     *,
     system_prompt: str = "",
-    max_iterations: int = _MAX_ITERATIONS,
+    max_iterations: int = MAX_ITERATIONS,
 ):
     """Build and compile a ReAct agent graph.
 

@@ -11,7 +11,7 @@ import random
 from datetime import date, timedelta
 
 from faker import Faker
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from ecommerce_brain.db.engine import Base, engine, get_session
 from ecommerce_brain.db.models import (
@@ -313,7 +313,7 @@ def seed_embeddings() -> None:
     from ecommerce_brain.llm import embedding_client
     client = embedding_client()
     with get_session() as session:
-        entries = session.query(KEDBEntry).all()
+        entries = session.scalars(select(KEDBEntry)).all()
         for entry in entries:
             vec = client.embed_query(entry.symptom_summary)
             entry.embedding = vec

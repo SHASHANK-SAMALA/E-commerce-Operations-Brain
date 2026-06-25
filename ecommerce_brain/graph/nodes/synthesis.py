@@ -12,13 +12,21 @@ from opentelemetry import trace
 from ecommerce_brain.graph.state import GraphState
 from ecommerce_brain.llm import synthesis_llm
 from ecommerce_brain.memory.kadb import get_action_stats
+from ecommerce_brain.observability.safe_metrics import safe_record
+from ecommerce_brain.observability.setup import llm_latency_histogram
 from ecommerce_brain.schemas.outputs import ProposedAction, RootCauseReport
 
 log = structlog.get_logger(__name__)
 _tracer = trace.get_tracer("ecommerce_brain.synthesis")
 
-# Hard cap on proposed actions regardless of LLM output.
 _MAX_ACTIONS = 4
+
+# Channel names that LLMs frequently confuse with campaign_id values.
+# Actions using these as campaign_id are blocked in post-processing.
+_CHANNEL_NAMES: frozenset[str] = frozenset({
+    "google", "meta", "email", "tiktok",
+    "instagram", "facebook", "youtube", "bing",
+})
 
 _SYSTEM = """You are a senior e-commerce operations analyst.
 You receive domain reports from Sales, Inventory, Marketing, and Support agents.
@@ -80,19 +88,112 @@ Return only the RootCauseReport JSON — no prose.
 
 
 def _intent_allows_actions(intent: str | None) -> bool:
-    # Only explicit action intent produces proposed_actions that require HITL.
-    # Diagnose, report, and memory_query are read-only — no actions, no HITL.
+    """Return True only for explicit action intent — diagnose/report/memory_query are read-only."""
     return intent == "action"
 
 
+def _build_kadb_context() -> str:
+    """Surface historical action success rates to guide the LLM's recommendations."""
+    action_types = [
+        "restock_product",
+        "resume_campaign",
+        "increase_campaign_budget",
+        "apply_discount_promotion",
+    ]
+    lines: list[str] = []
+    for at in action_types:
+        stats = get_action_stats(at)
+        if stats["total_executions"] > 0:
+            lines.append(
+                f"  {at}: {stats['total_executions']} past executions, "
+                f"{(stats['success_rate'] or 0) * 100:.0f}% success rate, "
+                f"avg revenue impact ${stats['avg_revenue_impact']:.0f}"
+            )
+    if not lines:
+        return ""
+    return (
+        "\n\n=== ACTION SUCCESS HISTORY "
+        "(use to set historical_success_rate on proposed actions) ===\n"
+        + "\n".join(lines)
+        + "\n=== END ACTION HISTORY ==="
+    )
+
+
+def _filter_actions(
+    proposed: list[ProposedAction],
+    inventory_report,
+    marketing_report,
+    sales_report,
+) -> list[ProposedAction]:
+    """Post-processing guard: drop LLM-generated actions that violate data integrity rules.
+
+    This runs in code so violations are impossible to prompt-engineer around.
+    """
+    valid_skus: set[str] = set()
+    if inventory_report is not None:
+        for item in getattr(inventory_report, "stockouts", []):
+            valid_skus.add(getattr(item, "sku", ""))
+        valid_skus.update(getattr(inventory_report, "near_stockout_skus", []))
+
+    paused_campaign_ids: set[str] = set()
+    if marketing_report is not None:
+        for c in getattr(marketing_report, "paused_campaigns", []):
+            paused_campaign_ids.add(getattr(c, "campaign_id", ""))
+
+    clean: list[ProposedAction] = []
+    for action in proposed:
+        atype = action.action_type
+        params = action.parameters
+
+        if atype == "restock_product":
+            sku = params.get("sku", "")
+            if not valid_skus:
+                log.warning("synthesis.action_blocked", action_type=atype, reason="no_stockouts_in_report")
+                continue
+            if sku not in valid_skus:
+                log.warning("synthesis.action_blocked", action_type=atype, sku=sku, reason="sku_not_in_report")
+                continue
+
+        elif atype == "increase_campaign_budget":
+            cid = params.get("campaign_id", "")
+            if cid.lower() in _CHANNEL_NAMES:
+                log.warning("synthesis.action_blocked", action_type=atype, reason="channel_name_as_id", value=cid)
+                continue
+            if marketing_report is not None:
+                roas_delta = getattr(marketing_report, "roas_delta_pct", 0.0)
+                underperforming = getattr(marketing_report, "underperforming_channels", [])
+                if roas_delta >= -10.0 and not underperforming:
+                    log.warning("synthesis.action_blocked", action_type=atype, reason="roas_acceptable")
+                    continue
+
+        elif atype == "resume_campaign":
+            if not paused_campaign_ids:
+                log.warning("synthesis.action_blocked", action_type=atype, reason="no_paused_campaigns")
+                continue
+            if params.get("campaign_id") not in paused_campaign_ids:
+                log.warning("synthesis.action_blocked", action_type=atype, reason="campaign_not_paused")
+                continue
+
+        elif atype == "apply_discount_promotion":
+            rev_delta = getattr(sales_report, "revenue_delta_pct", 0.0) if sales_report else 0.0
+            if rev_delta >= -5.0:
+                log.warning("synthesis.action_blocked", action_type=atype, reason="revenue_drop_below_threshold")
+                continue
+
+        clean.append(action)
+
+    return clean
+
+
 async def synthesis_node(state: GraphState) -> dict:
+    """Merge domain reports into a RootCauseReport with validated proposed actions."""
     with _tracer.start_as_current_span("synthesis_node") as span:
         span.set_attribute("query_id", state.get("query_id", ""))
         span.set_attribute("intent", state.get("intent", "diagnose"))
         start = state.get("investigation_start_ms", int(time.time() * 1000))
         duration_ms = int(time.time() * 1000) - start
 
-        reports_text = []
+        reports_text: list[str] = []
         for domain, key in [
             ("Sales", "sales_report"),
             ("Inventory", "inventory_report"),
@@ -100,16 +201,16 @@ async def synthesis_node(state: GraphState) -> dict:
             ("Support", "support_report"),
         ]:
             report = state.get(key)
-            if report:
-                # For SalesReport, surface category names plainly so LLM doesn't receive dicts
-                if key == "sales_report" and hasattr(report, "top_declining_category_names"):
-                    d = report.model_dump(mode="python")
-                    d["top_declining_categories"] = report.top_declining_category_names
-                    reports_text.append(
-                        f"### {domain} Report\n{json.dumps(d, indent=2, default=str)}"
-                    )
-                else:
-                    reports_text.append(f"### {domain} Report\n{report.model_dump_json(indent=2)}")
+            if not report:
+                continue
+            if key == "sales_report" and hasattr(report, "top_declining_category_names"):
+                d = report.model_dump(mode="python")
+                d["top_declining_categories"] = report.top_declining_category_names
+                reports_text.append(
+                    f"### {domain} Report\n{json.dumps(d, indent=2, default=str)}"
+                )
+            else:
+                reports_text.append(f"### {domain} Report\n{report.model_dump_json(indent=2)}")
 
         reflection = state.get("reflection_result")
         evidence_score = reflection.evidence_score if reflection else 0.5
@@ -123,27 +224,11 @@ async def synthesis_node(state: GraphState) -> dict:
                 "\n=== END HISTORICAL REFERENCE ==="
             )
 
-        # KADB: surface historical action success rates
-        kadb_context = ""
         try:
-            action_types = ["restock_product", "resume_campaign", "increase_campaign_budget", "apply_discount_promotion"]
-            kadb_lines = []
-            for at in action_types:
-                stats = get_action_stats(at)
-                if stats["total_executions"] > 0:
-                    kadb_lines.append(
-                        f"  {at}: {stats['total_executions']} past executions, "
-                        f"{(stats['success_rate'] or 0) * 100:.0f}% success rate, "
-                        f"avg revenue impact ${stats['avg_revenue_impact']:.0f}"
-                    )
-            if kadb_lines:
-                kadb_context = (
-                    "\n\n=== ACTION SUCCESS HISTORY (use to set historical_success_rate on proposed actions) ===\n"
-                    + "\n".join(kadb_lines)
-                    + "\n=== END ACTION HISTORY ==="
-                )
-        except Exception:
-            pass
+            kadb_context = _build_kadb_context()
+        except Exception as exc:
+            log.warning("synthesis.kadb_unavailable", error=str(exc))
+            kadb_context = ""
 
         messages = [
             SystemMessage(content=_SYSTEM),
@@ -167,18 +252,22 @@ async def synthesis_node(state: GraphState) -> dict:
         llm_start_ms = int(time.time() * 1000)
         try:
             report: RootCauseReport = await structured_llm.ainvoke(messages)
+        except Exception as exc:
+            log.error("synthesis.llm_failed", error=str(exc))
+            span.record_exception(exc)
+            span.set_attribute("error", True)
+            return {
+                "error": f"Synthesis failed: {exc!s}",
+                "audit_log": [{"node": "synthesis", "event": "failed", "error": str(exc)[:200]}],
+            }
         finally:
-            try:
-                from ecommerce_brain.observability.setup import llm_latency_histogram
-                llm_latency_histogram.record(
-                    int(time.time() * 1000) - llm_start_ms, {"node": "synthesis"}
-                )
-            except Exception:
-                pass
+            safe_record(
+                llm_latency_histogram,
+                int(time.time() * 1000) - llm_start_ms,
+                {"node": "synthesis"},
+            )
 
         try:
-
-            # Hard cap — never let the LLM propose more than _MAX_ACTIONS.
             if len(report.proposed_actions) > _MAX_ACTIONS:
                 log.warning(
                     "synthesis.actions_capped",
@@ -187,105 +276,13 @@ async def synthesis_node(state: GraphState) -> dict:
                 )
                 report.proposed_actions = report.proposed_actions[:_MAX_ACTIONS]
 
-            # Hard post-processing: enforce data integrity in code, not just in the prompt.
             inventory_report = state.get("inventory_report")
             marketing_report = state.get("marketing_report")
             sales_report_obj = state.get("sales_report")
 
-            # Channel names the LLM confuses with campaign_id values
-            _CHANNEL_NAMES = {
-                "google", "meta", "email", "tiktok",
-                "instagram", "facebook", "youtube", "bing",
-            }
-
-            valid_skus: set[str] = set()
-            if inventory_report is not None:
-                for item in getattr(inventory_report, "stockouts", []):
-                    valid_skus.add(getattr(item, "sku", ""))
-                valid_skus.update(getattr(inventory_report, "near_stockout_skus", []))
-
-            paused_campaign_ids: set[str] = set()
-            if marketing_report is not None:
-                for c in getattr(marketing_report, "paused_campaigns", []):
-                    paused_campaign_ids.add(getattr(c, "campaign_id", ""))
-
-            clean_actions = []
-            for action in report.proposed_actions:
-                atype = action.action_type
-                params = action.parameters
-
-                if atype == "restock_product":
-                    sku = params.get("sku", "")
-                    if not valid_skus:
-                        # Inventory report has zero stockouts/near-stockouts — no restocks allowed
-                        log.warning(
-                            "synthesis.action_blocked",
-                            action_type=atype,
-                            sku=sku,
-                            reason="no_stockouts_in_report",
-                        )
-                        continue
-                    if sku not in valid_skus:
-                        log.warning(
-                            "synthesis.action_blocked",
-                            action_type=atype,
-                            sku=sku,
-                            reason="sku_not_in_current_report",
-                        )
-                        continue
-
-                elif atype == "increase_campaign_budget":
-                    cid = params.get("campaign_id", "")
-                    if cid.lower() in _CHANNEL_NAMES:
-                        # LLM used channel name instead of campaign_id — block, don't guess
-                        log.warning(
-                            "synthesis.action_blocked",
-                            action_type=atype,
-                            reason="channel_name_used_as_id",
-                            value=cid,
-                        )
-                        continue
-                    if marketing_report is not None:
-                        roas_delta = getattr(marketing_report, "roas_delta_pct", 0.0)
-                        underperforming = getattr(marketing_report, "underperforming_channels", [])
-                        if roas_delta >= -10.0 and not underperforming:
-                            log.warning(
-                                "synthesis.action_blocked",
-                                action_type=atype,
-                                reason="roas_acceptable_no_underperforming",
-                            )
-                            continue
-
-                elif atype == "resume_campaign":
-                    if not paused_campaign_ids:
-                        log.warning(
-                            "synthesis.action_blocked",
-                            action_type=atype,
-                            reason="no_paused_campaigns",
-                        )
-                        continue
-                    if params.get("campaign_id") not in paused_campaign_ids:
-                        log.warning(
-                            "synthesis.action_blocked",
-                            action_type=atype,
-                            reason="campaign_id_not_in_paused_list",
-                        )
-                        continue
-
-                elif atype == "apply_discount_promotion":
-                    rev_delta = (
-                        getattr(sales_report_obj, "revenue_delta_pct", 0.0)
-                        if sales_report_obj else 0.0
-                    )
-                    if rev_delta >= -5.0:
-                        log.warning(
-                            "synthesis.action_blocked",
-                            action_type=atype,
-                            reason="revenue_drop_below_threshold",
-                        )
-                        continue
-
-                clean_actions.append(action)
+            clean_actions = _filter_actions(
+                report.proposed_actions, inventory_report, marketing_report, sales_report_obj
+            )
 
             if len(clean_actions) < len(report.proposed_actions):
                 log.info(
@@ -297,7 +294,7 @@ async def synthesis_node(state: GraphState) -> dict:
             if not _intent_allows_actions(state.get("intent")):
                 if clean_actions:
                     log.info(
-                        "synthesis.actions_suppressed_non_action_intent",
+                        "synthesis.actions_suppressed",
                         intent=state.get("intent"),
                         suppressed=len(clean_actions),
                     )
@@ -305,8 +302,7 @@ async def synthesis_node(state: GraphState) -> dict:
 
             report.proposed_actions = clean_actions
 
-            # Enrich proposed actions with KADB success rates
-            enriched_actions = []
+            enriched_actions: list[ProposedAction] = []
             for action in report.proposed_actions:
                 stats = get_action_stats(action.action_type)
                 enriched = ProposedAction(**action.model_dump())
@@ -316,7 +312,11 @@ async def synthesis_node(state: GraphState) -> dict:
 
             span.set_attribute("root_causes", len(report.root_causes))
             span.set_attribute("proposed_actions", len(report.proposed_actions))
-            log.info("synthesis.done", causes=len(report.root_causes), actions=len(report.proposed_actions))  # noqa: E501
+            log.info(
+                "synthesis.done",
+                causes=len(report.root_causes),
+                actions=len(report.proposed_actions),
+            )
 
             return {
                 "root_cause_report": report,
@@ -341,10 +341,10 @@ async def synthesis_node(state: GraphState) -> dict:
                 ],
             }
         except Exception as exc:
-            log.error("synthesis.failed", error=str(exc))
+            log.error("synthesis.postprocessing_failed", error=str(exc))
             span.record_exception(exc)
             span.set_attribute("error", True)
             return {
-                "error": f"Synthesis failed: {exc!s}",
+                "error": f"Synthesis post-processing failed: {exc!s}",
                 "audit_log": [{"node": "synthesis", "event": "failed", "error": str(exc)[:200]}],
             }

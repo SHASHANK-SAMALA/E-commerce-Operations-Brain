@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from ecommerce_brain.db.engine import get_session
 from ecommerce_brain.db.models import MockCampaign
+from ecommerce_brain.tools.constants import ROAS_MULTIPLIER, ROAS_UNDERPERFORM_THRESHOLD
 from ecommerce_brain.tools.registry import register_tool
 
 
@@ -16,6 +17,16 @@ class GetCampaignStatusInput(BaseModel):
 
 class GetAdPerformanceInput(BaseModel):
     channel: str = Field(default="all", description="Channel filter or 'all'")
+
+
+class GetPausedCampaignsInput(BaseModel):
+    hours: int = Field(
+        default=168, ge=1, description="Only show campaigns paused within this many hours"
+    )
+
+
+class GetChannelRoasInput(BaseModel):
+    days: int = Field(default=7, ge=1, le=90)
 
 
 @register_tool(args_schema=GetCampaignStatusInput)
@@ -67,50 +78,52 @@ def get_ad_performance(channel: str = "all") -> dict:
         }
 
 
-# ── Semantic aliases used by the agent YAML definitions ───────────────────────
-# NOTE: resume_campaign is an action tool — defined in action_tools.py only.
-
-class GetCampaignPerformanceInput(BaseModel):
-    days: int = Field(default=7, ge=1, le=90)
-
-
-class GetChannelRoasInput(BaseModel):
-    days: int = Field(default=7, ge=1, le=90)
-
-
-class GetPausedCampaignsInput(BaseModel):
-    hours: int = Field(
-        default=168, ge=1, description="Only show campaigns paused within this many hours"
-    )
-
-
-@register_tool(args_schema=GetCampaignPerformanceInput)
-def get_campaign_performance(days: int = 7) -> list[dict]:
-    """Get all campaigns with performance metrics — revenue attribution, ROAS, and status."""
-    return get_campaign_status(status_filter="all")
-
-
 @register_tool(args_schema=GetPausedCampaignsInput)
 def get_paused_campaigns(hours: int = 168) -> list[dict]:
-    """Get campaigns that are currently paused with their daily budget at risk."""
-    all_campaigns = get_campaign_status(status_filter="paused")
+    """Get campaigns currently paused, filtered to those paused within the last ``hours`` hours.
+
+    Args:
+        hours: Time window in hours. Campaigns paused longer than this are excluded.
+    """
+    with get_session() as session:
+        stmt = select(MockCampaign).where(MockCampaign.status == "paused")
+        if hours < 168:
+            # Only apply the time-window filter when a non-default value is requested.
+            # paused_at is stored as an ISO string; string comparison works for ISO dates.
+            from datetime import datetime, timedelta, timezone
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+            stmt = stmt.where(MockCampaign.paused_at >= cutoff)
+        campaigns = session.scalars(stmt).all()
+
     return [
         {
-            **c,
-            "daily_revenue_at_risk": round(c["daily_budget"] * 3.8, 2),
+            "campaign_id": c.campaign_id,
+            "name": c.name,
+            "channel": c.channel,
+            "daily_budget": c.daily_budget,
+            "paused_at": c.paused_at,
+            "daily_revenue_at_risk": round(c.daily_budget * ROAS_MULTIPLIER, 2),
         }
-        for c in all_campaigns
+        for c in campaigns
     ]
 
 
 @register_tool(args_schema=GetChannelRoasInput)
 def get_channel_roas(days: int = 7) -> dict:
     """Get ROAS breakdown by channel to identify underperforming channels."""
-    perf = get_ad_performance(channel="all")
     with get_session() as session:
-        stmt = select(MockCampaign).where(MockCampaign.status == "active")
-        active = session.scalars(stmt).all()
-        channel_data: dict = {}
+        active = session.scalars(
+            select(MockCampaign).where(MockCampaign.status == "active")
+        ).all()
+        paused = session.scalars(
+            select(MockCampaign).where(MockCampaign.status == "paused")
+        ).all()
+
+        total_budget = sum(c.daily_budget for c in active)
+        total_paused_budget = sum(c.daily_budget for c in paused)
+        avg_roas = sum(c.roas for c in active) / max(len(active), 1)
+
+        channel_data: dict[str, dict] = {}
         for c in active:
             ch = c.channel
             if ch not in channel_data:
@@ -125,9 +138,16 @@ def get_channel_roas(days: int = 7) -> dict:
                 "channel": ch,
                 "avg_roas": round(v["roas_sum"] / max(v["count"], 1), 2),
                 "daily_budget": round(v["budget"], 2),
-                "is_underperforming": (v["roas_sum"] / max(v["count"], 1)) < 2.0,
+                "is_underperforming": (v["roas_sum"] / max(v["count"], 1)) < ROAS_UNDERPERFORM_THRESHOLD,
             }
             for ch, v in channel_data.items()
         ],
-        "total_summary": perf,
+        "total_summary": {
+            "active_campaigns": len(active),
+            "paused_campaigns": len(paused),
+            "total_active_daily_budget": round(total_budget, 2),
+            "total_paused_daily_budget": round(total_paused_budget, 2),
+            "average_roas": round(avg_roas, 2),
+            "estimated_daily_revenue_at_risk": round(total_paused_budget * avg_roas, 2),
+        },
     }

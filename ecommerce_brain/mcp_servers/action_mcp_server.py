@@ -1,22 +1,12 @@
-import logging
-
+import structlog
 from mcp.server.fastmcp import FastMCP
 
-from ecommerce_brain.tools.action_tools import (
-    apply_discount_promotion as _apply_discount_promotion,
-)
-from ecommerce_brain.tools.action_tools import (
-    increase_campaign_budget as _increase_campaign_budget,
-)
-from ecommerce_brain.tools.action_tools import (
-    restock_product as _restock_product,
-)
-from ecommerce_brain.tools.action_tools import (
-    resume_campaign as _resume_campaign,
-)
+from ecommerce_brain.tools.action_tools import apply_discount_promotion as _apply_discount_promotion
+from ecommerce_brain.tools.action_tools import increase_campaign_budget as _increase_campaign_budget
+from ecommerce_brain.tools.action_tools import restock_product as _restock_product
+from ecommerce_brain.tools.action_tools import resume_campaign as _resume_campaign
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("action_mcp_server")
+log = structlog.get_logger(__name__)
 
 mcp = FastMCP("action-mcp-server", port=8005, host="0.0.0.0")  # nosec B104
 
@@ -43,5 +33,5 @@ def resume_campaign(campaign_id: str, dry_run: bool = True) -> dict:
     return _resume_campaign(campaign_id=campaign_id, dry_run=dry_run)
 
 if __name__ == "__main__":
-    logger.info("Starting Action MCP Server on port 8005...")
+    log.info("mcp_server.starting", server="action", port=8005)
     mcp.run(transport="sse")

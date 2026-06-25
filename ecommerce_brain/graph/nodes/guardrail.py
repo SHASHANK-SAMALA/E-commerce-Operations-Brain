@@ -17,9 +17,11 @@ from typing import Literal
 
 import structlog
 from opentelemetry import trace
+from opentelemetry.trace import Span
 
 from ecommerce_brain.graph.state import GraphState
 from ecommerce_brain.guardrails.prompt_injection import InjectionDetected, check_for_injection
+from ecommerce_brain.utils.llm_output import strip_code_fence
 
 _tracer = trace.get_tracer("ecommerce_brain.guardrail")
 
@@ -27,7 +29,7 @@ log = structlog.get_logger(__name__)
 
 # ── Tier 1: fast pattern matching ─────────────────────────────────────────────
 
-_REJECT_PATTERNS: list[re.Pattern] = [
+_REJECT_PATTERNS: list[re.Pattern[str]] = [
     # Food / cooking
     re.compile(
         r"\b(cook|recipe|ingredient|bake|boil|fry|grill|roast|steam|cuisine|burger|pizza|pasta)\b",
@@ -40,7 +42,7 @@ _REJECT_PATTERNS: list[re.Pattern] = [
         r"\b(movie|song|music|artist|actor|film|tv\s*show|series|lyrics|album|singer|band|concert)\b",
         re.I,
     ),
-    # Sports (names are caught via 'who is' pattern below)
+    # Sports
     re.compile(
         r"\b(cricket|football|soccer|basketball|tennis|sports\s+score|match\s+result|batsman|wicket|scorer)\b",
         re.I,
@@ -54,7 +56,7 @@ _REJECT_PATTERNS: list[re.Pattern] = [
     re.compile(r"\b(joke|funny|poem|riddle|write\s+me\s+a|tell\s+me\s+a\s+story)\b", re.I),
     # Language queries
     re.compile(r"\b(translate|grammar|definition\s+of|meaning\s+of|synonym|antonym)\b", re.I),
-    # General knowledge person / entity lookups — "who is X", "who was X"
+    # General knowledge person / entity lookups
     # NOTE: allow keywords are checked BEFORE reject patterns, so
     # "who is responsible for the sales drop?" won't reach this pattern.
     re.compile(r"\bwho\s+(is|was|are|were)\b", re.I),
@@ -100,16 +102,15 @@ _REJECTION_RESPONSE = (
 
 
 def _tier1_classify(query: str) -> Literal["reject", "allow", "uncertain"]:
+    """Fast regex/keyword classifier — no LLM cost."""
     q_lower = query.lower()
 
-    # Check e-commerce allow keywords FIRST — this overrides reject patterns.
-    # Use \b + prefix matching so "campaign" matches "campaigns", "order" matches "orders", etc.
+    # Check e-commerce allow keywords FIRST — overrides all reject patterns.
     if any(re.search(r"\b" + re.escape(kw), q_lower) for kw in _ECOMMERCE_ALLOW_KEYWORDS):
         return "allow"
 
     query_words = set(re.findall(r"\w+", q_lower))
 
-    # Hard reject: matches a known off-topic pattern
     for pattern in _REJECT_PATTERNS:
         if pattern.search(q_lower):
             return "reject"
@@ -133,28 +134,24 @@ _GUARDRAIL_SYSTEM_PROMPT = (
 
 
 def _tier2_llm_classify(query: str) -> bool:
-    """Returns True if relevant, False if off-topic.
+    """Return True if relevant, False if off-topic.
 
     On LLM error: fails CLOSED (rejects) because Tier 2 is only reached when
-    the query has NO e-commerce keywords — so uncertain + broken LLM means
-    we cannot confirm relevance and should not run the full agent pipeline.
+    the query has NO e-commerce keywords — so uncertain + broken LLM means we
+    cannot confirm relevance and must not run the full agent pipeline.
     """
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        from ecommerce_brain.llm import routing_llm  # lazy import to avoid circular deps
+        from ecommerce_brain.llm import routing_llm
         response = routing_llm().invoke([
             SystemMessage(content=_GUARDRAIL_SYSTEM_PROMPT),
             HumanMessage(content=query),
         ])
-        raw = response.content.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        raw = strip_code_fence(response.content.strip())
         result = json.loads(raw)
         return bool(result.get("relevant", False))
     except Exception as exc:
-        # Fail closed: query reached Tier 2 because it had no e-commerce keywords.
-        # When the LLM is unavailable we cannot confirm relevance, so reject.
         log.warning("guardrail.tier2_failed_closed", error=str(exc), query_preview=query[:60])
         return False
 
@@ -162,11 +159,12 @@ def _tier2_llm_classify(query: str) -> bool:
 # ── Node ──────────────────────────────────────────────────────────────────────
 
 def guardrail_node(state: GraphState) -> dict:
+    """Entry guardrail — blocks injections, off-topic queries, and malformed input."""
     with _tracer.start_as_current_span("guardrail_node") as span:
         return _guardrail_node_impl(state, span)
 
 
-def _guardrail_node_impl(state: GraphState, span) -> dict:  # noqa: ANN001
+def _guardrail_node_impl(state: GraphState, span: Span) -> dict:
     start_ms = int(time.time() * 1000)
     query = state["query"]
     query_id = state.get("query_id", "unknown")

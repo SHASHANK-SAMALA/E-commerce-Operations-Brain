@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from ecommerce_brain.db.engine import get_session
 from ecommerce_brain.db.models import Incident, KEDBEntry
-from ecommerce_brain.llm import embedding_client
+from ecommerce_brain.memory.embeddings import embed_text
 from ecommerce_brain.schemas.memory import MemoryContext, SimilarIncident
 
 log = structlog.get_logger(__name__)
@@ -35,11 +35,8 @@ _KEDB_SIMILARITY_THRESHOLD = 0.30
 
 def recall(query: str, top_k: int = 3) -> MemoryContext:
     """Embed query → cosine search KEDB + incidents → MemoryContext."""
-    try:
-        client = embedding_client()
-        query_embedding = client.embed_query(query)
-    except Exception as exc:
-        log.warning("kedb.recall_no_embedding", error=str(exc)[:200])
+    query_embedding = embed_text(query)
+    if query_embedding is None:
         return MemoryContext()
 
     context = MemoryContext()
@@ -93,12 +90,7 @@ def save_incident(
     duration_ms: int,
 ) -> str:
     """Persist a completed investigation to the incident store."""
-    try:
-        client = embedding_client()
-        embedding = client.embed_query(query)
-    except Exception as exc:
-        log.warning("kedb.save_incident_no_embedding", error=str(exc)[:200])
-        embedding = None
+    embedding = embed_text(query)
 
     with get_session() as session:
         incident = Incident(
@@ -134,11 +126,8 @@ def save_or_update_kedb_entry(
     if not root_causes:
         return None
 
-    try:
-        client = embedding_client()
-        embedding = client.embed_query(query)
-    except Exception as exc:
-        log.warning("kedb.save_kedb_no_embedding", error=str(exc)[:200])
+    embedding = embed_text(query)
+    if embedding is None:
         return None
 
     try:
